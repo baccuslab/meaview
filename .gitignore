@@ -1,0 +1,8 @@
+*.stash
+Makefile*
+*.dylib
+*.so
+*.o
+debug/*
+build/*
+meaview

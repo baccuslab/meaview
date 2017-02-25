@@ -1,4 +1,5 @@
 *.stash
+*.swp
 Makefile*
 *.dylib
 *.so

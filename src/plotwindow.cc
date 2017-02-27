@@ -34,10 +34,6 @@ PlotWindow::PlotWindow(QWidget* parent)
 
 PlotWindow::~PlotWindow()
 {
-	replotWorker->deleteLater();
-	replotThread->quit();
-	replotThread->wait();
-	replotThread->deleteLater();
 	for (auto& worker : workers)
 		worker->deleteLater();
 	for (auto& thread : threads) {
@@ -59,14 +55,10 @@ void PlotWindow::closeEvent(QCloseEvent* ev)
 
 void PlotWindow::initThreadPool()
 {
-	replotWorker = new plotworker::PlotWorker;
-	replotThread = new QThread;
-	replotWorker->moveToThread(replotThread);
 	QObject::connect(this, &PlotWindow::allSubplotsUpdated,
-			replotWorker, &plotworker::PlotWorker::replot);
-	QObject::connect(replotWorker, &plotworker::PlotWorker::plotUpdated,
+			this, &PlotWindow::replot);
+	QObject::connect(this, &PlotWindow::plotUpdated,
 			this, &PlotWindow::handlePlotUpdated);
-	replotThread->start();
 	
 	for (auto i = 0; i < qMax(nthreads - 1, 1); i++) {
 		threads.append(new QThread());
@@ -148,27 +140,16 @@ void PlotWindow::setupWindow(const QString& array, const int nchannels)
 	plot->replot();
 }
 
-void PlotWindow::blockResize(const bool block)
-{
-	resizeBlocked = block;
-	if (block)
-		setFixedSize(size());
-	else
-		setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-}
-
 void PlotWindow::incrementNumPlotsUpdated(const int idx)
 {
 	subplotsUpdated.setBit(idx);
 	if (subplotsUpdated.count(true) < subplotsUpdated.size())
 		return;
-	blockResize(true);
 	emit allSubplotsUpdated(plot, &lock, subplots);
 }
 
 void PlotWindow::handlePlotUpdated(const int npoints)
 {
-	blockResize(false);
 	subplotsUpdated.fill(false);
 	emit plotRefreshed(npoints);
 }
@@ -280,20 +261,13 @@ subplot::Subplot* PlotWindow::findSubplotContainingPoint(const QPoint& point)
 	return nullptr;
 }
 
-void PlotWindow::transferDataToSubplots(const DataFrame& frame)
-{
-	auto data = frame.data();
-	transferDataToSubplots(data);
-}
-
 void PlotWindow::transferDataToSubplots(const DataFrame::Samples& d)
 {
 	for (auto c = 0; c < nsubplots; c++) {
 		auto chan = subplots.at(c)->channel();
-		QVector<double> vec(d.n_rows);
-		//std::memcpy(vec.data(), d.colptr(chan), sizeof(double) * d.n_rows); 
-		for (auto i = 0; i < vec.size(); i++)
-			vec[i] = d(i, chan);
+		QVector<DataFrame::DataType> vec(d.n_rows);
+		std::memcpy(vec.data(), d.colptr(chan), 
+				sizeof(DataFrame::DataType) * d.n_rows); 
 		emit sendDataToPlotWorker(subplots.at(c), vec, &lock,
 				clickedPlots.contains(subplots.at(c)));
 	}
@@ -421,8 +395,6 @@ const plotwindow::ChannelView& PlotWindow::currentView() const
 
 void PlotWindow::minify(bool min)
 {
-	auto blocked = resizeBlocked;
-	blockResize(false);
 	if (min) {
 		fullPosition = geometry();
 		lock.lockForWrite();
@@ -441,7 +413,6 @@ void PlotWindow::minify(bool min)
 		lock.unlock();
 		unstackInspectors();
 	}
-	blockResize(blocked);
 }
 
 void PlotWindow::stackInspectors()
@@ -480,5 +451,14 @@ void PlotWindow::computePlotColors()
 	settings.setValue("display/plot-pens", pens);
 }
 
+void PlotWindow::replot()
+{
+	lock.lockForWrite();
+	plot->replot();
+	lock.unlock();
+	emit plotUpdated(subplots.first()->graph()->data()->size());
+}
+
 }; // end plotwindow namespace
 }; // end meaview namespace
+

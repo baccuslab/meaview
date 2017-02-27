@@ -14,12 +14,13 @@ namespace meaviewwindow {
 MeaviewWindow::MeaviewWindow(QWidget* parent) :
 	QMainWindow(parent),
 	playbackStatus(PlaybackStatus::Paused),
-	lastDataReceived(0.),
-	lastDataPlotted(0.)
+	position(0.)
 {
 	setWindowTitle("meaview");
 	setGeometry(WindowPosition.first, WindowPosition.second,
 			WindowSize.first, WindowSize.second);
+
+	/* Initialize all sub-widgets. */
 	createDockWidgets();
 	initSettings();
 	initMenus();
@@ -27,8 +28,14 @@ MeaviewWindow::MeaviewWindow(QWidget* parent) :
 	initPlaybackControlWidget();
 	initDisplaySettingsWidget();
 	initPlotWindow();
+
+	/* Create timer for making data requests. */
 	requestTimer = new QTimer(this);
-	requestTimer->setInterval(settings.value("display/refresh").toInt());
+	requestTimer->setInterval(settings.value("data/request-size").toInt());
+	//requestTimer->setInterval(static_cast<int>(
+				//settings.value("display/refresh").toInt() * 1000.));
+
+	/* Connect any initial signals and slots. */
 	initSignals();
 	statusBar()->showMessage("Ready", StatusMessageTimeout);
 }
@@ -54,7 +61,7 @@ void MeaviewWindow::initSettings()
 	settings.setValue("display/view",
 			plotwindow::DefaultChannelView);
 	settings.setValue("display/autoscale", false);
-	settings.setValue("data/request-size", meaviewwindow::DataRequestChunkSize);
+	settings.setValue("data/request-size", meaviewwindow::DataChunkRequestSize);
 }
 
 void MeaviewWindow::createDockWidgets() 
@@ -77,6 +84,7 @@ void MeaviewWindow::initMenus()
 {
 	menuBar = new QMenuBar(nullptr);
 
+	/* Menu for controlling interaction with the BLDS. */
 	serverMenu = new QMenu(tr("&Server"));
 
 	connectToDataServerAction = new QAction("&Connect to server", serverMenu);
@@ -96,6 +104,7 @@ void MeaviewWindow::initMenus()
 
 	menuBar->addMenu(serverMenu);
 
+	/* Menu for controlling playback. */
 	playbackMenu = new QMenu(tr("&Playback"));
 
 	startPlaybackAction = new QAction(tr("&Start"), playbackMenu);
@@ -138,6 +147,7 @@ void MeaviewWindow::initMenus()
 
 	menuBar->addMenu(playbackMenu);
 
+	/* Menu for controlling view and windows. */
 	viewMenu = new QMenu(tr("&View"));
 
 	showServerDockWidget = serverDockWidget->toggleViewAction();
@@ -276,19 +286,20 @@ void MeaviewWindow::initDisplaySettingsWidget()
 	dataConfigurationLabel = new QLabel("Channel view:", displaySettingsWidget);
 	dataConfigurationLabel->setAlignment(Qt::AlignRight);
 	dataConfigurationBox = new QComboBox(displaySettingsWidget);
-	dataConfigurationBox->setToolTip("Set arrangement of subplots to match an electrode configuration");
+	dataConfigurationBox->setToolTip(
+			"Set arrangement of subplots to match an electrode configuration");
 	dataConfigurationBox->setEnabled(false);
 
 	refreshIntervalLabel = new QLabel("Refresh:", displaySettingsWidget);
 	refreshIntervalLabel->setAlignment(Qt::AlignRight);
-	refreshIntervalBox = new QSpinBox(displaySettingsWidget);
+	refreshIntervalBox = new QDoubleSpinBox(displaySettingsWidget);
 	refreshIntervalBox->setSingleStep(plotwindow::RefreshStepSize);
 	refreshIntervalBox->setRange(plotwindow::MinRefreshInterval, plotwindow::MaxRefreshInterval);
-	refreshIntervalBox->setSuffix(" ms");
+	refreshIntervalBox->setSuffix(" s");
 	refreshIntervalBox->setValue(plotwindow::DefaultRefreshInterval);
 	refreshIntervalBox->setToolTip("Interval at which data plots refresh");
 	QObject::connect(refreshIntervalBox, 
-			static_cast<void(QSpinBox::*)(int)>(&QSpinBox::valueChanged),
+			static_cast<void(QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
 			this, &MeaviewWindow::updateRefresh);
 
 	scaleLabel = new QLabel("Scale:", displaySettingsWidget);
@@ -324,7 +335,6 @@ void MeaviewWindow::initDisplaySettingsWidget()
 	displaySettingsDockWidget->setFloating(false);
 	displaySettingsDockWidget->setWidget(displaySettingsWidget);
 	addDockWidget(Qt::TopDockWidgetArea, displaySettingsDockWidget);
-	tabifyDockWidget(displaySettingsDockWidget, playbackControlDockWidget);
 }
 
 void MeaviewWindow::initPlotWindow() 
@@ -353,10 +363,7 @@ void MeaviewWindow::requestData()
 {
 	if (!client)
 		return;
-	auto tmp = settings.value("display/refresh").toDouble() / 1000.;
-	qDebug() << "Client requesting" << lastDataReceived << "to" << 
-		lastDataReceived + tmp;
-	client->getData(lastDataReceived, lastDataReceived + tmp);
+	client->getData(position, position + settings.value("display/refresh").toDouble());
 }
 
 void MeaviewWindow::connectToDataServer() 
@@ -466,13 +473,16 @@ void MeaviewWindow::handleInitialServerStatusReply(const QJsonObject& status)
 	settings.setValue("recording/exists", status["recording-exists"].toBool());
 	settings.setValue("recording/length", status["recording-length"].toInt());
 	settings.setValue("recording/position", status["recording-position"].toDouble());
+	position = settings.value("recording/position").toDouble();
 
 	if (exists) {
 		QObject::connect(client, &BldsClient::sourceStatus,
 				this, &MeaviewWindow::handleInitialSourceStatusReply);
 		client->requestSourceStatus();
 	} else {
-		// not sure
+		// not sure, probably some kind of heartbeat to check for a new 
+		// data source. also, could just disconnect, so user has to connect
+		// after source is created to stream.
 	}
 
 }
@@ -494,17 +504,31 @@ void MeaviewWindow::handleInitialSourceStatusReply(bool exists, const QJsonObjec
 
 		QObject::connect(client, &BldsClient::data,
 				this, &MeaviewWindow::receiveDataFrame);
+		QObject::connect(client, &BldsClient::error,
+				this, &MeaviewWindow::handleServerError);
 
 	} else {
-		// not sure
+		// not sure. If not recording, probably just don't enable the start button
+		// and check periodically for the recording existing/running. Enable once
+		// it is or clear window when the source is deleted.
 	}
 }
 
 void MeaviewWindow::handleServerError(QString msg) 
 {
-	QMessageBox::critical(this, "Connection interrupted",
-			QString("Connection to the data server has been interrupted. %1").arg(msg));
-	disconnectFromDataServer();
+	QMessageBox::critical(this, "Server error",
+			QString("An error was received from the server:\n\n%1").arg(msg));
+
+	/* Ideally this method should be the only checks for the source and recording
+	 * currently existing once we start streaming data. Something like:
+	 * 	- if error, probably recording stopped, stop plotting and clear the window
+	 * 	- check for source/recording still existing
+	 * 		- if recording is gone, just enable heartbeat check for it to start again
+	 * 		- if source is gone clear window and enable heartbeat to check for that,
+	 * 			maybe less frequently and with a max # retries before just disconnecting.
+	 */
+	endRecording();
+	//disconnectFromDataServer();
 }
 
 void MeaviewWindow::disconnectFromDataServer() 
@@ -534,6 +558,7 @@ void MeaviewWindow::disconnectFromDataServer()
 	client.clear();
 
 	plotWindow->clear();
+	position = 0.0;
 
 	statusBar()->showMessage("Disconnected from data server", StatusMessageTimeout);
 }
@@ -560,7 +585,6 @@ void MeaviewWindow::showHidensConfiguration()
 
 void MeaviewWindow::pausePlayback() 
 {
-	// need to actually stop requesting data via client
 	requestTimer->stop();
 
 	statusBar()->showMessage("Vizualization paused", StatusMessageTimeout);
@@ -598,54 +622,50 @@ void MeaviewWindow::endRecording()
 	}
 	requestTimer->stop();
 	//stopPlayback();
-	lastDataPlotted = 0.;
-	lastDataPlotted = 0.;
+	position = 0.;
 
 	statusBar()->showMessage("Recording ended", StatusMessageTimeout * 2);
 }
 
 void MeaviewWindow::receiveDataFrame(const DataFrame& frame)
 {
-	plotWindow->transferDataToSubplots(frame);
-	lastDataReceived = frame.stop();
-	lastDataPlotted = frame.stop();
+	plotWindow->transferDataToSubplots(frame.data());
+	position = frame.stop();
 }
 
 void MeaviewWindow::updateTime()
 {
 	timeLine->setText(QString("%1 - %2").arg(
-				lastDataPlotted - settings.value("display/refresh").toDouble(), 
-				0, 'f', 1).arg(lastDataPlotted, 0, 'f', 1));
+				position - settings.value("display/refresh").toDouble(), 
+				0, 'f', 1).arg(position, 0, 'f', 1));
 }
 
 void MeaviewWindow::jumpToStart() 
 {
-	lastDataPlotted = 0.;
-	client->getData(lastDataPlotted, 
-			lastDataPlotted + settings.value("display/refresh").toDouble());
+	position = 0.;
+	client->getData(position, position + settings.value("display/refresh").toDouble());
 }
 
 void MeaviewWindow::jumpBackward() 
 {
-	auto diff = settings.value("display/refresh").toDouble();
-	if (lastDataPlotted > diff) {
-		lastDataPlotted = qMax(0.0, lastDataPlotted - 2 * diff);
-		client->getData(lastDataPlotted, lastDataPlotted + diff);
+	auto refresh = settings.value("display/refresh").toDouble();
+	if (position > refresh) {
+		position = qMax(0.0, position - 2 * refresh);
+		client->getData(position, position + refresh);
 	}
 }
 
 void MeaviewWindow::jumpForward() 
 {
-	auto diff = settings.value("display/refresh").toDouble();
-	if ((lastDataReceived - lastDataPlotted) > diff)
-		client->getData(lastDataPlotted, lastDataPlotted + diff);
+	auto refresh = settings.value("display/refresh").toDouble();
+	client->getData(position, position + refresh);
 }
 
 void MeaviewWindow::jumpToEnd() 
 {
-	auto diff = settings.value("display/refresh").toDouble();
-	lastDataPlotted = lastDataReceived;
-	client->getData(lastDataPlotted, lastDataPlotted + diff);
+	auto refresh = settings.value("display/refresh").toDouble();
+	position = settings.value("recording/length").toDouble() - refresh;
+	client->getData(position, position + refresh);
 }
 
 void MeaviewWindow::updateAutoscale(int state) 
@@ -659,9 +679,9 @@ void MeaviewWindow::updateScale(double scale)
 	settings.setValue("display/scale", scale);
 }
 
-void MeaviewWindow::updateRefresh(int refresh) 
+void MeaviewWindow::updateRefresh(double refresh) 
 {
-	requestTimer->setInterval(refresh);
+	//requestTimer->setInterval(static_cast<int>(refresh * 1000.));
 	settings.setValue("display/refresh", refresh);
 }
 

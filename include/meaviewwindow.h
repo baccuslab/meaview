@@ -158,7 +158,7 @@ class MeaviewWindow : public QMainWindow {
 		void updateScale(double scale);
 
 		/*! This slot updates the refresh interval of each plot. */
-		void updateRefresh(int refresh);
+		void updateRefresh(double refresh);
 
 		void requestData();
 
@@ -245,11 +245,10 @@ class MeaviewWindow : public QMainWindow {
 		/* The current hidens configuration, if any. */
 		Configuration hidensConfiguration;
 
-		/* Time of the last sample of data received. */
-		double lastDataReceived;
-
-		/* Time of the last sample of data plotted. */
-		double lastDataPlotted;
+		/* Current position in the recording. This specifies both
+		 * the last sample plotted and the last sample received.
+		 */
+		double position;
 
 		/* The main menu bar, with all sub-menus. */
 		QMenuBar* menuBar;
@@ -382,7 +381,7 @@ class MeaviewWindow : public QMainWindow {
 		/* Spin box displaying and used to change the refresh interval
 		 * of the plots.
 		 */
-		QSpinBox* refreshIntervalBox;
+		QDoubleSpinBox* refreshIntervalBox;
 
 		/* Labels the combo box used to select a new configuration
 		 * of the subplots.

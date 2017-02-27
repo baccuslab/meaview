@@ -13,8 +13,8 @@ namespace plotworker {
 PlotWorker::PlotWorker(QObject* parent)
 	: QObject(parent)
 {
-	autoscale = settings.value("display/autoscale").toBool();
-	qRegisterMetaType<QVector<double> >("QVector<double>");
+	m_autoscale = m_settings.value("display/autoscale").toBool();
+	qRegisterMetaType<QVector<DataFrame::DataType> >("QVector<DataFrame::DataType>");
 }
 
 PlotWorker::~PlotWorker()
@@ -22,38 +22,30 @@ PlotWorker::~PlotWorker()
 }
 
 void PlotWorker::transferDataToSubplot(subplot::Subplot* subplot, 
-		QVector<double> data, QReadWriteLock* lock, const bool clicked)
+		QVector<DataFrame::DataType> data, QReadWriteLock* lock, 
+		const bool clicked)
 {
-	if (!subplots.contains(subplot))
+	if (!m_subplots.contains(subplot))
 		return;
 	subplot->addDataToBackBuffer(data, lock, clicked);
 }
 
 void PlotWorker::constructXData(int n)
 {
-	if (xdata.size() == n)
+	if (m_xdata.size() == n)
 		return;
-	xdata.resize(n);
-	std::iota(xdata.begin(), xdata.end(), 0.0);
-}
-
-void PlotWorker::replot(QCustomPlot* plot, QReadWriteLock* lock, 
-		QList<subplot::Subplot*> sps)
-{
-	lock->lockForWrite();
-	plot->replot();
-	lock->unlock();
-	emit plotUpdated((*sps.begin())->graph()->data()->size());
+	m_xdata.resize(n);
+	std::iota(m_xdata.begin(), m_xdata.end(), 0.0);
 }
 
 void PlotWorker::addSubplot(subplot::Subplot* sp)
 {
-	subplots.insert(sp);
+	m_subplots.insert(sp);
 }
 
 void PlotWorker::clearSubplots()
 {
-	subplots.clear();
+	m_subplots.clear();
 }
 
 }; // end plotworker namespace

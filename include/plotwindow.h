@@ -28,11 +28,24 @@
 namespace meaview {
 namespace plotwindow {
 
+/*! \class PlotWindow
+ * Main widget containing grid of data plots.
+ *
+ * The PlotWindow class is a widget used to contain, display, and manage
+ * a grid of subplots displaying data from each channel. The PlotWindow
+ * also manages a list of PlotWorker classes, which transfer new data
+ * from the server to the appropriate subplots in parallel. The window
+ * also provides functionality for creating "channel inspectors", a 
+ * separate window providing a blown-up view of data from a single channel.
+ */
 class PlotWindow : public QWidget {
 	Q_OBJECT
 
 	public:
+		/*! Construct a PlotWindow. */
 		PlotWindow(QWidget* parent = 0);
+
+		/*! Destroy the plot window. */
 		~PlotWindow();
 
 		/*! Set up the plot window to accept data from an array, with a
@@ -49,12 +62,12 @@ class PlotWindow : public QWidget {
 		 * the corresponding channel subplots
 		 */
 		void transferDataToSubplots(const DataFrame::Samples& samples);
-		void transferDataToSubplots(const DataFrame& samples);
 
 		/*! Return the currently-used channel view */
 		const plotwindow::ChannelView& currentView() const;
 
 	signals:
+
 		/*! Send data to a plot worker, in a separate thread, for plotting.
 		 * \param subplot The subplot in which the data will be plotted.
 		 * \param data The actual data being plotted.
@@ -62,7 +75,8 @@ class PlotWindow : public QWidget {
 		 * \param clicked true if the user right-clicked this plot, coloring it red.
 		 */
 		void sendDataToPlotWorker(subplot::Subplot* subplot, 
-				QVector<double> data, QReadWriteLock* lock, bool clicked);
+				QVector<DataFrame::DataType> data, QReadWriteLock* lock, 
+				bool clicked);
 
 		/*! Emitted when data in all subplots has been updated, so that the main window
 		 * can refresh itself.
@@ -95,7 +109,15 @@ class PlotWindow : public QWidget {
 		 */
 		void clearSubplots();
 
+		/*! This signal is emitted when all subplots in the window have been
+		 * updated. 
+		 *
+		 * \param nsamples The number of samples plotted in each subplot.
+		 */
+		void plotUpdated(int nsamples);
+
 	public slots:
+
 		/*! Toggles whether the plot window is visible */
 		void toggleVisible();
 		
@@ -128,13 +150,6 @@ class PlotWindow : public QWidget {
 		 * the arrangement of the actual electrodes from which it originates.
 		 */
 		void updateChannelView();
-
-		/*! Block or unblock resizing of the main plot window.
-		 * This is used to prevent segfaults that I'm as yet unable to diagnose, 
-		 * which come from a graphics backing store being deleted as data is transferred
-		 * or a plot is refreshed.
-		 */
-		void blockResize(const bool block);
 
 		/*! Toggle whether all channel inspector windows are visible */
 		void toggleInspectorsVisible();
@@ -206,6 +221,8 @@ class PlotWindow : public QWidget {
 		 */
 		void computePlotColors();
 
+		void replot();
+
 		/*! Number of plot transfer threads */
 		const int nthreads = QThread::idealThreadCount();
 
@@ -255,12 +272,6 @@ class PlotWindow : public QWidget {
 		/*! List of all plot worker objects, which transfer data to the actual subplots */
 		QList<plotworker::PlotWorker*> workers;
 
-		/*! The plot worker whose sole job is to redraw the main QCustomPlot object. */
-		plotworker::PlotWorker* replotWorker;
-
-		/*! The thread in which teh replotWorker lives */
-		QThread* replotThread;
-
 		/*! Read-write lock for the main plot.\
 		 * This is the only synchronization primitive used to coordinate the plotting threads.
 		 * The threads transferring data to back buffers may proceed at any time, and only
@@ -268,9 +279,6 @@ class PlotWindow : public QWidget {
 		 * the main plot's redraw.
 		 */
 		QReadWriteLock lock;
-
-		/*! True if resizes are blocked on this window */
-		bool resizeBlocked = false;
 
 }; // end PlotWindow class
 

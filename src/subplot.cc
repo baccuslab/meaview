@@ -14,33 +14,33 @@ Subplot::Subplot(const int chan, const QString& label,
 		const int idx, const QPair<int, int>& pos,
 		QCustomPlot* parent)
 	: QObject(parent),
-	channel_(chan),
-	label_(label),
-	index_(idx),
-	position_(pos),
-	ticks(3),
-	tickLabels(3),
-	mean(0.0)
+	m_channel(chan),
+	m_label(label),
+	m_index(idx),
+	m_position(pos),
+	m_ticks(3),
+	m_tickLabels(3),
+	m_mean(0.0)
 {
-	isAutoscaleChannel = (settings.value("data/array").toString().startsWith("hidens") ?
-			false : plotwindow::McsAutoscaledChannels.contains(channel_));
+	m_autoscale = (m_settings.value("data/array").toString().startsWith("hidens") ?
+			false : plotwindow::McsAutoscaledChannels.contains(m_channel));
 
-	pen = settings.value("display/plot-pens").toList().at(chan).value<QPen>();
-	selectedPen = QPen{QColor::fromHsv(pen.color().hue(), 255, 255)};
+	m_pen = m_settings.value("display/plot-pens").toList().at(chan).value<QPen>();
+	m_selectedPen = QPen{QColor::fromHsv(m_pen.color().hue(), 255, 255)};
 
 	/* Create subplot axis and graph for the data */
-	rect_ = new QCPAxisRect(parent); // parent will delete
-	graph_ = parent->addGraph(rect_->axis(QCPAxis::atBottom), 
-			rect_->axis(QCPAxis::atLeft));
+	m_rect = new QCPAxisRect(parent); // parent will delete
+	m_graph = parent->addGraph(m_rect->axis(QCPAxis::atBottom), 
+			m_rect->axis(QCPAxis::atLeft));
 
 	/* Format plot */
 	graph()->keyAxis()->setTicks(false);
 	graph()->keyAxis()->setTickLabels(false);
 	graph()->keyAxis()->grid()->setVisible(false);
 	graph()->keyAxis()->setRange(0, 
-			(settings.value("sample-rate").toDouble() * 
-			settings.value("display/refresh").toDouble() / 1000));
-	graph()->keyAxis()->setLabel(label_);
+			(m_settings.value("sample-rate").toDouble() * 
+			m_settings.value("display/refresh").toDouble()));
+	graph()->keyAxis()->setLabel(m_label);
 	graph()->keyAxis()->setLabelFont(subplot::LabelFont);
 	graph()->keyAxis()->setLabelColor(subplot::LabelColor);
 	graph()->keyAxis()->setLabelPadding(subplot::LabelPadding);
@@ -54,8 +54,8 @@ Subplot::Subplot(const int chan, const QString& label,
 	graph()->valueAxis()->setBasePen(subplot::LabelColor);
 	graph()->valueAxis()->setTickLabelColor(subplot::LabelColor);
 	graph()->valueAxis()->setLabelFont(QFont{"Helvetica", 8, QFont::Light});
-	auto scale = settings.value("display/scale").toDouble()
-			* settings.value("display/scale-multiplier").toDouble();
+	auto scale = m_settings.value("display/scale").toDouble()
+			* m_settings.value("display/scale-multiplier").toDouble();
 	graph()->valueAxis()->setRange(-scale, scale);
 }
 
@@ -63,40 +63,50 @@ Subplot::~Subplot()
 {
 }
 
-void Subplot::addDataToBackBuffer(const QVector<double>& data, QReadWriteLock* lock, 
-		const bool clicked)
+void Subplot::addDataToBackBuffer(const QVector<DataFrame::DataType>& data, 
+		QReadWriteLock* lock, const bool clicked)
 {
 	/* Transfer single data block to back buffer, update running mean */
-	for (auto i = backBufferPosition; i < backBufferPosition + data.size(); i++) {
-		backBuffer.insert(i, QCPData(i, data.at(i - backBufferPosition)));
-		mean += data.at(i - backBufferPosition);
+	auto gain = m_settings.value("data/gain").toDouble();
+	for (auto i = m_backBufferPosition; i < m_backBufferPosition + data.size(); i++) {
+		auto point = gain * static_cast<double>(data.at(i - m_backBufferPosition));
+		m_backBuffer.insert(i, QCPData(i, point));
+		m_mean += point;
 	}
-	backBufferPosition += data.size();
+	m_backBufferPosition += data.size();
 
 	/* Full plot block available */
-	if (backBufferPosition >= getPlotBlockSize()) {
+	if (m_backBufferPosition >= getPlotBlockSize()) {
 		/* Remove any excess data */
-		auto it = backBuffer.lowerBound(std::move(getPlotBlockSize()));
-		while (it != backBuffer.end())
-			it = backBuffer.erase(it);
+		auto it = m_backBuffer.lowerBound(std::move(getPlotBlockSize()));
+		while (it != m_backBuffer.end())
+			it = m_backBuffer.erase(it);
 
 		/* Swap buffers */
 		lock->lockForRead();
-		graph()->data()->swap(backBuffer);
-		backBufferPosition = 0;
+		graph()->data()->swap(m_backBuffer);
+		m_backBufferPosition = 0;
 		formatPlot(clicked);
 		lock->unlock();
 		emit plotReady(index());
 	}
 }
 
-void Subplot::formatPlot(bool clicked) {
+void Subplot::formatPlot(bool clicked) 
+{
+	/* Set pen, brighter for selected plots. */
 	if (clicked) {
-		graph()->setPen(selectedPen);
+		graph()->setPen(m_selectedPen);
 	} else {
-		graph()->setPen(pen);
+		graph()->setPen(m_pen);
 	}
-	if ( settings.value("display/autoscale").toBool() || isAutoscaleChannel ) {
+
+	if ( m_settings.value("display/autoscale").toBool() || m_autoscale ) {
+
+		/* Auto scale this subplot's y-axis to fit the data. This is just
+		 * done by rescaling the axis, and then drawing tick marks at
+		 * the values corresponding to true voltage values.
+		 */
 		graph()->rescaleValueAxis();
 		graph()->valueAxis()->setTicks(true);
 		graph()->valueAxis()->setTickLabels(true);
@@ -106,23 +116,27 @@ void Subplot::formatPlot(bool clicked) {
 		 */
 		auto range = graph()->valueAxis()->range();
 		auto center = range.center();
-		auto multiplier = settings.value("display/scale-multiplier").toDouble();
-		ticks = { range.lower, center, range.upper };
-		tickLabels = { 
+		auto multiplier = m_settings.value("display/scale-multiplier").toDouble();
+		m_ticks = { range.lower, center, range.upper };
+		m_tickLabels = { 
 				QString::number(static_cast<int>((range.lower - center) / multiplier)),
 				"0",
 				QString::number(static_cast<int>((range.upper - center) / multiplier))
 			};
-		graph()->valueAxis()->setTickVector(ticks);
-		graph()->valueAxis()->setTickVectorLabels(tickLabels);
+		graph()->valueAxis()->setTickVector(m_ticks);
+		graph()->valueAxis()->setTickVectorLabels(m_tickLabels);
+
 	} else {
-		mean /= getPlotBlockSize();
+
+		/* Turn off ticks and set y-axis limits to the full scale. */
+		m_mean /= getPlotBlockSize();
 		graph()->valueAxis()->setTicks(false);
 		graph()->valueAxis()->setTickLabels(false);
-		auto scale = (settings.value("display/scale").toDouble()  *
-				settings.value("display/scale-multiplier").toDouble());
-		graph()->valueAxis()->setRange(mean - scale, mean + scale);
-		mean = 0.0;
+		auto scale = (m_settings.value("display/scale").toDouble()  *
+				m_settings.value("display/scale-multiplier").toDouble());
+		graph()->valueAxis()->setRange(m_mean - scale, m_mean + scale);
+		m_mean = 0.0;
+
 	}
 
 	graph()->rescaleKeyAxis();

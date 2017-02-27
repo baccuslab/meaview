@@ -67,24 +67,24 @@ namespace meaviewwindow {
 	/*! Default IP address for data server */
 	const QString DefaultServerHost = "localhost";
 
-	/*! Amount of data requested at a time from the BLDS, in seconds. */
-	const double DataRequestChunkSize = 0.500;
+	/*! Size of data chunks to request, in *milliseconds*. */
+	const int DataChunkRequestSize = 100;
 
-}; // end controlwindow namespace
+}; // end meaviewwindow namespace
 
 namespace plotwindow {
 
-	/*! Default plot refresh interval (milliseconds) */
-	const int DefaultRefreshInterval = 2000;
+	/*! Default plot refresh interval in seconds. */
+	const double DefaultRefreshInterval = 2.0;
 
-	/*! Minimum plot refresh interval (milliseconds) */
-	const int MinRefreshInterval = 500;
+	/*! Minimum plot refresh interval in seconds */
+	const double MinRefreshInterval = 0.5;
 
-	/*! Maximum plot refresh interval (milliseconds) */
-	const int MaxRefreshInterval = 10000;
+	/*! Maximum plot refresh interval in seconds */
+	const double MaxRefreshInterval = 10.0;
 
-	/*! Step size for refresh intervals */
-	const int RefreshStepSize = 500;
+	/*! Step size for refresh intervals in seconds */
+	const double RefreshStepSize = 0.5;
 
 	/*! Default scale for MCS data plots, in volts */
 	const float McsDefaultDisplayRange = { 0.5 }; 

@@ -243,7 +243,7 @@ class MeaviewWindow : public QMainWindow {
 		QPointer<plotwindow::PlotWindow> plotWindow;
 
 		/* The current hidens configuration, if any. */
-		Configuration hidensConfiguration;
+		QConfiguration hidensConfiguration;
 
 		/* Current position in the recording. This specifies both
 		 * the last sample plotted and the last sample received.
@@ -406,11 +406,6 @@ class MeaviewWindow : public QMainWindow {
 		 * callbacks in various places.
 		 */
 		QMap<QString, QMetaObject::Connection> connections;
-
-		/*! Timer used to make requests for data. This times out
-		 * at the refresh interval.
-		 */
-		QTimer* requestTimer;
 };
 
 }; // end meaviewwindow namespace

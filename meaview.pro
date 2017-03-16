@@ -28,6 +28,10 @@ INCLUDEPATH += . \
 LIBS += -L../libblds-client/lib \
 	-L/usr/local/lib
 
+linux {
+	LIBS += -L/usr/lib/x86_64-linux-gnu/hdf5/serial
+}
+
 win32 {
 	LIBS += -lblds-client0
 } else {

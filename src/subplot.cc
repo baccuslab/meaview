@@ -119,9 +119,9 @@ void Subplot::formatPlot(bool clicked)
 		auto multiplier = m_settings.value("display/scale-multiplier").toDouble();
 		m_ticks = { range.lower, center, range.upper };
 		m_tickLabels = { 
-				QString::number(static_cast<int>((range.lower - center) / multiplier)),
+				QString::number(((range.lower - center) / multiplier), 'f', 1),
 				"0",
-				QString::number(static_cast<int>((range.upper - center) / multiplier))
+				QString::number(((range.upper - center) / multiplier), 'f', 1)
 			};
 		graph()->valueAxis()->setTickVector(m_ticks);
 		graph()->valueAxis()->setTickVectorLabels(m_tickLabels);

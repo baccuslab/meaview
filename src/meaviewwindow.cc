@@ -29,12 +29,6 @@ MeaviewWindow::MeaviewWindow(QWidget* parent) :
 	initDisplaySettingsWidget();
 	initPlotWindow();
 
-	/* Create timer for making data requests. */
-	requestTimer = new QTimer(this);
-	requestTimer->setInterval(settings.value("data/request-size").toInt());
-	//requestTimer->setInterval(static_cast<int>(
-				//settings.value("display/refresh").toInt() * 1000.));
-
 	/* Connect any initial signals and slots. */
 	initSignals();
 	statusBar()->showMessage("Ready", StatusMessageTimeout);
@@ -355,8 +349,6 @@ void MeaviewWindow::initSignals()
 {
 	QObject::connect(this, &MeaviewWindow::recordingFinished,
 			this, &MeaviewWindow::endRecording);
-	QObject::connect(requestTimer, &QTimer::timeout,
-			this, &MeaviewWindow::requestData);
 }
 
 void MeaviewWindow::requestData()
@@ -406,32 +398,6 @@ void MeaviewWindow::handleServerConnection(bool made)
 		QObject::connect(client, &BldsClient::serverStatus,
 				this, &MeaviewWindow::handleInitialServerStatusReply);
 		client->requestServerStatus();
-
-		/*
-		auto deviceType = dataClient->get(target::type).toLower();
-		settings.setValue("data/array", deviceType);
-		settings.setValue("data/sample-rate", dataClient->get(target::sample_rate));
-		QString tmp;
-		if (deviceType.startsWith("hidens")) {
-			settings.setValue("display/scale-multiplier", 1e-6);
-			scaleBox->setSuffix(" uV");
-			scaleBox->setValue(plotwindow::HiDensDefaultDisplayRange);
-			scaleBox->setMaximum(plotwindow::HiDensMaxDisplayRange);
-			scaleBox->setSingleStep(10);
-			scaleBox->setDecimals(0);
-			tmp = "HiDens";
-
-		} else {
-			settings.setValue("display/scale-multiplier", 1.0);
-			scaleBox->setSuffix(" V");
-			scaleBox->setValue(plotwindow::McsDefaultDisplayRange);
-			scaleBox->setMaximum(plotwindow::McsMaxDisplayRange);
-			scaleBox->setDecimals(2);
-			scaleBox->setSingleStep(0.1);
-			tmp = "MCS";
-
-		}
-		*/
 		statusBar()->showMessage("Connected to Baccus lab data server",
 				StatusMessageTimeout);
 
@@ -476,13 +442,42 @@ void MeaviewWindow::handleInitialServerStatusReply(const QJsonObject& status)
 	position = settings.value("recording/position").toDouble();
 
 	if (exists) {
+
+		/* Request the source status.
+		 *
+		 * If this is a Hidens array, first request the configuration 
+		 * to determine how to initialize the plot window.
+		 */
 		QObject::connect(client, &BldsClient::sourceStatus,
 				this, &MeaviewWindow::handleInitialSourceStatusReply);
-		client->requestSourceStatus();
+		if (status["source-type"].toString().startsWith("hidens")) {
+			connections.insert("configuration", 
+					QObject::connect(client, &BldsClient::getSourceResponse,
+					[&](const QString& param, bool /* valid */, 
+							const QVariant& data) -> void {
+						if (param != "configuration")
+							return;
+						if (connections.contains("configuration"))
+							QObject::disconnect(connections.take("configuration"));
+						hidensConfiguration = data.value<QConfiguration>();
+						storeHidensConfiguration();
+						client->requestSourceStatus();
+					}));
+			client->getSource("configuration");
+		} else {
+			client->requestSourceStatus();
+		}
+
 	} else {
-		// not sure, probably some kind of heartbeat to check for a new 
-		// data source. also, could just disconnect, so user has to connect
-		// after source is created to stream.
+		QMessageBox::warning(this, "No data source", "There is no active data source "
+				"managed by the BLDS at this time. Connect again after the source has "
+				"been created.");
+		settings.remove("source/exists");
+		settings.remove("recording/exists");
+		settings.remove("recording/length");
+		settings.remove("recording/position");
+		position = 0.0;
+		disconnectFromDataServer();
 	}
 
 }
@@ -492,10 +487,28 @@ void MeaviewWindow::handleInitialSourceStatusReply(bool exists, const QJsonObjec
 	if (exists) {
 		auto type = status["source-type"].toString();
 		auto array = status["device-type"].toString();
-		settings.setValue("data/array", array);
 		auto nchannels = status["nchannels"].toInt();
+
+		settings.setValue("data/array", array);
 		settings.setValue("data/nchannels", nchannels);
+		settings.setValue("data/gain", status["gain"].toDouble());
 		plotWindow->setupWindow(array, nchannels);
+
+		if (array.startsWith("hidens")) {
+			settings.setValue("display/scale-multiplier", 1e-6);
+			scaleBox->setSuffix(" uV");
+			scaleBox->setValue(plotwindow::HiDensDefaultDisplayRange);
+			scaleBox->setMaximum(plotwindow::HiDensMaxDisplayRange);
+			scaleBox->setSingleStep(10);
+			scaleBox->setDecimals(0);
+		} else {
+			settings.setValue("display/scale-multiplier", 1.0);
+			scaleBox->setSuffix(" V");
+			scaleBox->setValue(plotwindow::McsDefaultDisplayRange);
+			scaleBox->setMaximum(plotwindow::McsMaxDisplayRange);
+			scaleBox->setDecimals(2);
+			scaleBox->setSingleStep(0.1);
+		}
 
 		startPlaybackButton->setEnabled(true);
 		startPlaybackAction->setEnabled(true);
@@ -518,17 +531,8 @@ void MeaviewWindow::handleServerError(QString msg)
 {
 	QMessageBox::critical(this, "Server error",
 			QString("An error was received from the server:\n\n%1").arg(msg));
-
-	/* Ideally this method should be the only checks for the source and recording
-	 * currently existing once we start streaming data. Something like:
-	 * 	- if error, probably recording stopped, stop plotting and clear the window
-	 * 	- check for source/recording still existing
-	 * 		- if recording is gone, just enable heartbeat check for it to start again
-	 * 		- if source is gone clear window and enable heartbeat to check for that,
-	 * 			maybe less frequently and with a max # retries before just disconnecting.
-	 */
 	endRecording();
-	//disconnectFromDataServer();
+	disconnectFromDataServer();
 }
 
 void MeaviewWindow::disconnectFromDataServer() 
@@ -579,14 +583,12 @@ void MeaviewWindow::showHidensConfiguration()
 {
 	if (!settings.value("data/array").toString().startsWith("hidens"))
 		return;
-	auto win = new configwindow::ConfigWindow(hidensConfiguration);
+	auto win = new configwindow::ConfigWindow(hidensConfiguration.toStdVector());
 	win->show();
 }
 
 void MeaviewWindow::pausePlayback() 
 {
-	requestTimer->stop();
-
 	statusBar()->showMessage("Vizualization paused", StatusMessageTimeout);
 	playbackStatus = PlaybackStatus::Paused;
 	
@@ -601,7 +603,7 @@ void MeaviewWindow::pausePlayback()
 
 void MeaviewWindow::startPlayback() 
 {
-	requestTimer->start();
+	requestData();
 
 	statusBar()->showMessage("Visualization started", StatusMessageTimeout);
 	playbackStatus = PlaybackStatus::Playing;
@@ -620,8 +622,16 @@ void MeaviewWindow::endRecording()
 	if (client) {
 		client->disconnect(); // just disconnect, don't fuck with others
 	}
-	requestTimer->stop();
-	//stopPlayback();
+	playbackStatus = PlaybackStatus::Paused;
+
+	setPlaybackMovementButtonsEnabled(false);
+	startPlaybackButton->setText("Start");
+	QObject::disconnect(startPlaybackAction, &QAction::triggered,
+			this, 0);
+	QObject::connect(startPlaybackAction, &QAction::triggered,
+			this, &MeaviewWindow::startPlayback);
+	startPlaybackButton->setEnabled(false);
+	totalTimeLine->setText("0");
 	position = 0.;
 
 	statusBar()->showMessage("Recording ended", StatusMessageTimeout * 2);
@@ -631,6 +641,8 @@ void MeaviewWindow::receiveDataFrame(const DataFrame& frame)
 {
 	plotWindow->transferDataToSubplots(frame.data());
 	position = frame.stop();
+	if (playbackStatus == PlaybackStatus::Playing)
+		requestData();
 }
 
 void MeaviewWindow::updateTime()
@@ -663,9 +675,19 @@ void MeaviewWindow::jumpForward()
 
 void MeaviewWindow::jumpToEnd() 
 {
-	auto refresh = settings.value("display/refresh").toDouble();
-	position = settings.value("recording/length").toDouble() - refresh;
-	client->getData(position, position + refresh);
+	connections.insert("position", 
+			QObject::connect(client, &BldsClient::getResponse,
+			[&](const QString& param, bool /* valid */, const QVariant& value) -> void {
+				if (param != "recording-position")
+					return;
+				if (connections.contains("position"))
+					QObject::disconnect(connections.take("position"));
+				position = value.toDouble() - 
+					settings.value("display/refresh").toDouble();
+				client->getData(position, position + 
+						settings.value("display/refresh").toDouble());
+			}));
+	client->get("recording-position");
 }
 
 void MeaviewWindow::updateAutoscale(int state) 
@@ -681,7 +703,6 @@ void MeaviewWindow::updateScale(double scale)
 
 void MeaviewWindow::updateRefresh(double refresh) 
 {
-	//requestTimer->setInterval(static_cast<int>(refresh * 1000.));
 	settings.setValue("display/refresh", refresh);
 }
 

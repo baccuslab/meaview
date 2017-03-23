@@ -450,7 +450,7 @@ void MeaviewWindow::handleInitialServerStatusReply(const QJsonObject& status)
 		 */
 		QObject::connect(client, &BldsClient::sourceStatus,
 				this, &MeaviewWindow::handleInitialSourceStatusReply);
-		if (status["source-type"].toString().startsWith("hidens")) {
+		if (status["device-type"].toString().startsWith("hidens")) {
 			connections.insert("configuration", 
 					QObject::connect(client, &BldsClient::getSourceResponse,
 					[&](const QString& param, bool /* valid */, 

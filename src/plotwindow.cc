@@ -18,7 +18,8 @@ namespace plotwindow {
 PlotWindow::PlotWindow(QWidget* parent) 
 	: QWidget(parent, Qt::Widget)
 {
-	setGeometry(meaviewwindow::WindowPosition.first, meaviewwindow::WindowPosition.second, 
+	setGeometry(meaviewwindow::WindowPosition.first, 
+			meaviewwindow::WindowPosition.second, 
 			meaviewwindow::WindowSize.first, meaviewwindow::WindowSize.second);
 	initThreadPool();
 	initPlot();
@@ -26,49 +27,25 @@ PlotWindow::PlotWindow(QWidget* parent)
 			this, &PlotWindow::createChannelInspector);
 	QObject::connect(plot, &QCustomPlot::mousePress,
 			this, &PlotWindow::handleChannelClick);
-	fullPosition = geometry();
 	show();
 	lower();
-	qRegisterMetaType<QList<subplot::Subplot*> >("QList<subplot::Subplot*>");
 }
 
 PlotWindow::~PlotWindow()
 {
-	for (auto& worker : workers)
-		worker->deleteLater();
-	for (auto& thread : threads) {
+	emit deleteSubplots();
+	for (auto& thread : transferThreads) {
 		thread->quit();
 		thread->wait();
 		thread->deleteLater();
 	}
-	clear();
-}
-
-void PlotWindow::closeEvent(QCloseEvent* ev)
-{
-	if (ev->spontaneous()) {
-		ev->ignore();
-		emit hideRequest();
-	} else
-		ev->accept();
 }
 
 void PlotWindow::initThreadPool()
 {
-	QObject::connect(this, &PlotWindow::allSubplotsUpdated,
-			this, &PlotWindow::replot);
-	QObject::connect(this, &PlotWindow::plotUpdated,
-			this, &PlotWindow::handlePlotUpdated);
-	
 	for (auto i = 0; i < qMax(nthreads - 1, 1); i++) {
-		threads.append(new QThread());
-		workers.append(new plotworker::PlotWorker);
-		workers.at(i)->moveToThread(threads.at(i));
-		QObject::connect(this, &PlotWindow::sendDataToPlotWorker,
-				workers.at(i), &plotworker::PlotWorker::transferDataToSubplot);
-		QObject::connect(this, &PlotWindow::clearSubplots,
-				workers.at(i), &plotworker::PlotWorker::clearSubplots);
-		threads.at(i)->start();
+		transferThreads.append(new QThread());
+		transferThreads.at(i)->start();
 	}
 }
 
@@ -90,20 +67,20 @@ void PlotWindow::initPlot()
 
 void PlotWindow::setupWindow(const QString& array, const int nchannels)
 {
-	clear();
 	nsubplots = nchannels;
 	computePlotColors();
 	subplotsUpdated.resize(nsubplots);
 	subplotsUpdated.fill(false);
-	setWindowTitle(QString("MeaView: Data (%1)").arg(array));
+	subplotsDeleted.resize(nsubplots);
+	subplotsDeleted.fill(false);
 
 	/* Setup plot grid and view */
 	computePlotGridSize();
 	createPlotGrid();
 	createChannelView();
 
-	int worker = 0;
-	bool isHidens = settings.value("data/array").toString().startsWith("hidens");
+	int threadNum = 0;
+	bool isHidens = array.startsWith("hidens");
 	QString label;
 	for (auto i = 0; i < gridSize.first; i++) {
 		for (auto j = 0; j < gridSize.second; j++) {
@@ -111,7 +88,9 @@ void PlotWindow::setupWindow(const QString& array, const int nchannels)
 			if (idx >= nchannels)
 				break;
 
-			/* Create a subplot for this channel */
+			/* Compute position and channel number of this new
+			 * subplot in the current grid.
+			 */
 			auto position = view.at(idx);
 			int chan = position.first * gridSize.second + position.second;
 			if (isHidens) {
@@ -125,16 +104,27 @@ void PlotWindow::setupWindow(const QString& array, const int nchannels)
 				else
 					label = QString::number(chan);
 			}
+
+			/* Create a subplot for this channel */
 			auto sp = new subplot::Subplot(chan, label, idx, position, plot);
+
+			/* Connect signals/slots for communicating with subplot */
+			QObject::connect(this, &PlotWindow::sendDataToSubplot,
+					sp, &subplot::Subplot::handleNewData);
 			QObject::connect(sp, &subplot::Subplot::plotReady, 
 					this, &PlotWindow::incrementNumPlotsUpdated);
-			plot->plotLayout()->addElement(position.first, position.second, sp->rect());
+			QObject::connect(this, &PlotWindow::deleteSubplots,
+					sp, &subplot::Subplot::requestDelete);
+			QObject::connect(sp, &subplot::Subplot::deleted,
+					this, &PlotWindow::handleSubplotDeleted);
+			plot->plotLayout()->addElement(position.first, 
+					position.second, sp->rect());
 
-			/* Assign this subplot to a worker */
-			workers.at(worker)->addSubplot(sp);
+			/* Move this subplot to the appropriate background thread. */
 			subplots.append(sp);
-			worker += 1;
-			worker %= workers.size();
+			sp->moveToThread(transferThreads.at(threadNum));
+			threadNum += 1;
+			threadNum %= transferThreads.size();
 		}
 	}
 	plot->replot();
@@ -145,34 +135,21 @@ void PlotWindow::incrementNumPlotsUpdated(const int idx)
 	subplotsUpdated.setBit(idx);
 	if (subplotsUpdated.count(true) < subplotsUpdated.size())
 		return;
-	emit allSubplotsUpdated(plot, &lock, subplots);
+	replot();
 }
 
-void PlotWindow::handlePlotUpdated(const int npoints)
+void PlotWindow::handleSubplotDeleted(int index)
 {
-	subplotsUpdated.fill(false);
-	emit plotRefreshed(npoints);
-}
-
-void PlotWindow::toggleVisible()
-{
-	setVisible(!isVisible());
+	subplotsDeleted.setBit(index);
+	if (subplotsDeleted.count(true) < subplotsDeleted.size())
+		return;
+	handleAllSubplotsDeleted();
 }
 
 void PlotWindow::toggleInspectorsVisible()
 {
 	for (auto& each : inspectors)
 		each->setVisible(!each->isVisible());
-}
-
-void PlotWindow::clearAllData()
-{
-	lock.lockForWrite();
-	for (auto& sp : subplots)
-		sp->clearData();
-	clickedPlots.clear();
-	plot->replot();
-	lock.unlock();
 }
 
 void PlotWindow::clear()
@@ -183,23 +160,31 @@ void PlotWindow::clear()
 		each->deleteLater();
 	}
 	emit numInspectorsChanged(inspectors.size());
+	emit deleteSubplots();
+}
+
+void PlotWindow::handleAllSubplotsDeleted()
+{
 	lock.lockForWrite();
-	emit clearSubplots();
-	while (!subplots.isEmpty())
-		subplots.takeFirst()->deleteLater();
-	plot->clearGraphs();
+	subplots.clear();
 	plot->plotLayout()->clear();
+	plot->clearGraphs();
 	plot->replot();
 	lock.unlock();
-	setWindowTitle("MeaView: Data");
+	subplotsDeleted.fill(false);
+	emit cleared();
 }
 
 void PlotWindow::createChannelInspector(QMouseEvent* event)
 {
+	/* Find subplot for this click. */
 	auto sp = findSubplotContainingPoint(event->pos());
 	if (!sp)
 		return;
 
+	/* If an inspector already exists for this channel,
+	 * just raise it.
+	 */
 	for (auto& inspector: inspectors) {
 		if (sp->channel() == inspector->channel()) {
 			inspector->activateWindow();
@@ -208,12 +193,15 @@ void PlotWindow::createChannelInspector(QMouseEvent* event)
 		}
 	}
 
+	/* Create a new inspector from this channel. */
 	lock.lockForRead();
 	auto c = new channelinspector::ChannelInspector(plot,
 			sp->graph(), sp->channel(), sp->label(), this);
 	lock.unlock();
 	QObject::connect(c, &channelinspector::ChannelInspector::aboutToClose,
 			this, &PlotWindow::removeChannelInspector);
+
+	/* Add to list and position it appropriately. */
 	inspectors.append(c);
 	if (inspectors.size() > 1) {
 		auto pos = inspectors.at(inspectors.size() - 2)->pos();
@@ -221,6 +209,8 @@ void PlotWindow::createChannelInspector(QMouseEvent* event)
 				pos.y() + channelinspector::WindowSpacing.second);
 	}
 	c->show();
+
+	/* Notify. */
 	emit numInspectorsChanged(inspectors.size());
 }
 
@@ -264,14 +254,24 @@ subplot::Subplot* PlotWindow::findSubplotContainingPoint(const QPoint& point)
 void PlotWindow::transferDataToSubplots(const DataFrame::Samples& d)
 {
 	for (auto c = 0; c < nsubplots; c++) {
+
+		/* Copy appropriate channel into new vector.
+		 *
+		 * NOTE: The subplot will delete this, it *must not* be deleted
+		 * in this method.
+		 */
 		auto chan = subplots.at(c)->channel();
-		QVector<DataFrame::DataType> vec(d.n_rows);
-		std::memcpy(vec.data(), d.colptr(chan), 
-				sizeof(DataFrame::DataType) * d.n_rows); 
-		emit sendDataToPlotWorker(subplots.at(c), vec, &lock,
+		auto vec = new QVector<DataFrame::DataType>(d.n_rows);
+		std::memcpy(vec->data(), d.colptr(chan),
+				sizeof(DataFrame::DataType) * d.n_rows);
+
+		/* Send data */
+		emit sendDataToSubplot(subplots.at(c), vec, &lock, 
 				clickedPlots.contains(subplots.at(c)));
 	}
 }
+
+
 
 void PlotWindow::computePlotGridSize()
 {
@@ -285,12 +285,7 @@ void PlotWindow::computePlotGridSize()
 
 void PlotWindow::createPlotGrid()
 {
-	/* Remove any extant plot elements */
-	if (plot->plotLayout()->elementCount() > 0) {
-		for (auto i = 0; i < nsubplots; i++)
-			plot->plotLayout()->takeAt(view.at(i).first * gridSize.second 
-					+ view.at(i).second);
-	}
+	plot->plotLayout()->clear();
 	plot->plotLayout()->expandTo(0, 0);
 	plot->plotLayout()->simplify();
 	plot->plotLayout()->expandTo(gridSize.first, gridSize.second);
@@ -355,10 +350,22 @@ void PlotWindow::createChannelView()
 
 void PlotWindow::updateChannelView()
 {
+	/* Compute size of new grid. */
 	computePlotGridSize();
-	createPlotGrid();
+
+	/* Clear plot layout, without deleting subplots. */
+	for (auto i = 0; i < nsubplots; i++) {
+		if (plot->plotLayout()->elementAt(i)) {
+			plot->plotLayout()->takeAt(i);
+		}
+	}
+	plot->plotLayout()->simplify();
+
+	/* Create new view and move subplots there. */
 	createChannelView();
 	moveSubplots();
+
+	/* Update the source graph for any open channel inspectors. */
 	updateInspectorSources();
 }
 
@@ -370,6 +377,7 @@ void PlotWindow::updateInspectorSources()
 		subplot::Subplot* source = nullptr;
 		for (auto& sp : subplots) {
 			if (sp->channel() == inspector->channel()) {
+				qDebug() << source << sp;
 				source = sp;
 				break;
 			}
@@ -381,8 +389,12 @@ void PlotWindow::updateInspectorSources()
 void PlotWindow::moveSubplots()
 {
 	for (auto i = 0; i < nsubplots; i++) {
+
+		/* Compute new position. */
 		auto newPos = view.at(i);
 		subplots[i]->setPosition(newPos);
+
+		/* Put into new position. */
 		plot->plotLayout()->addElement(newPos.first, newPos.second, 
 				subplots[i]->rect());
 	}
@@ -396,21 +408,8 @@ const plotwindow::ChannelView& PlotWindow::currentView() const
 void PlotWindow::minify(bool min)
 {
 	if (min) {
-		fullPosition = geometry();
-		lock.lockForWrite();
-		setGeometry(
-				meaviewwindow::MinimalWindowPosition.first, 
-				meaviewwindow::MinimalWindowPosition.second,
-				meaviewwindow::MinimalWindowSize.first,
-				meaviewwindow::MinimalWindowSize.second
-			);
-		lock.unlock();
 		stackInspectors();
 	} else {
-		lock.lockForWrite();
-		setGeometry(fullPosition);
-		show();
-		lock.unlock();
 		unstackInspectors();
 	}
 }
@@ -456,7 +455,8 @@ void PlotWindow::replot()
 	lock.lockForWrite();
 	plot->replot();
 	lock.unlock();
-	emit plotUpdated(subplots.first()->graph()->data()->size());
+	subplotsUpdated.fill(false);
+	emit plotRefreshed(subplots.first()->graph()->data()->size());
 }
 
 }; // end plotwindow namespace

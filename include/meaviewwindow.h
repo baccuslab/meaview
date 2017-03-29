@@ -175,6 +175,9 @@ class MeaviewWindow : public QMainWindow {
 		 */
 		void updateInspectorAction(int numInspectors);
 
+		/*! Slot called to update the channel view. */
+		void updateChannelView();
+
 	private:
 
 		/* Create the dock widgets for interacting with the server and
@@ -222,6 +225,11 @@ class MeaviewWindow : public QMainWindow {
 		 * classes.
 		 */
 		void storeHidensConfiguration();
+
+		/*! Initialize the channel view menu with the supported
+		 * views for the given array.
+		 */
+		void initChannelViewMenu();
 
 		/* Current status of playback. */
 		PlaybackStatus playbackStatus;
@@ -406,6 +414,9 @@ class MeaviewWindow : public QMainWindow {
 		 * callbacks in various places.
 		 */
 		QMap<QString, QMetaObject::Connection> connections;
+
+		/* Full window position, used to restore after minification. */
+		QRect windowPosition;
 };
 
 }; // end meaviewwindow namespace

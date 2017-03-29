@@ -22,15 +22,27 @@ namespace meaview {
 
 namespace subplot {
 
-/*! A Subplot class represents a single data subplot, including
- * the data channel from which data is drawn. The Subplot also
- * contains the current (row, col) in the parent QCustomPlot's 
- * grid layout, and a label for the subplot.
+/*! \class Subplot
  *
- * Note that a Subplot always represents a single data channel,
- * which is constant over the lifetime of the object. However, 
- * the _m_position of the subplot in its parent grid layout may
- * change, if the selected channel view changes.
+ * A subplot showing data from a single channel.
+ *
+ * The Subplot class manages the data shown from a single channel of
+ * a recording. The class is intended to live in a background thread,
+ * and mostly manages the transfer of new data from the BLDS to the
+ * QCustomPlot graph actually showing the data. Because the class lives
+ * in background threads, signals and slots are provided to send it
+ * new data and to receive notifications of when the transfer has 
+ * completed.
+ *
+ * Although the Subplot creates and maintains a reference to the 
+ * graph, axes, and other QCustomPlot-related objects, it does *not*
+ * actually own or delete them. They are created as children of the
+ * main PlotWindow's QCustomPlot object. An instance of the Subplot
+ * class should always be deleted through the `requestDelete` slot,
+ * and any of the above objects (graphs etc) should not be deleted
+ * until the `deleted()` signal has been received. This ensures that
+ * the Subplot has released any references to these objects, and that
+ * no races occur.
  */
 class Subplot : public QObject {
 	Q_OBJECT
@@ -47,7 +59,14 @@ class Subplot : public QObject {
 				const int subplotIndex, const QPair<int, int>& position,
 				QCustomPlot* plot);
 
-		/*! Destroy a subplot, deleting all children and data */
+		/*! Destroy a Subplot.
+		 *
+		 * NOTE: Although the Subplot creates and maintains references to
+		 * various plot-related objects (graphs, ticks, etc), these *must not*
+		 * be deleted in this destructor. Those objects are owned by the
+		 * parent QCustomPlot, and will be deleted by either that destructor
+		 * or the various methods in the PlotWindow class.
+		 */
 		~Subplot();
 
 		/*! Return the data channel number this subplot represents */
@@ -78,25 +97,8 @@ class Subplot : public QObject {
 		 */
 		inline QCPAxisRect* rect() const { return m_rect; }
 
-		/*! Add data to the subplot's back buffer */
-		void addDataToBackBuffer(const QVector<DataFrame::DataType>& data, 
-				QReadWriteLock* lock, const bool clicked);
-
 		/*! Format this subplot for plotting, e.g. rescale axes and set pens.  */
 		void formatPlot(bool clicked);
-
-		/*! Clear all data in the front and back buffers */
-		inline void clearData()
-		{
-			graph()->clearData();
-			m_backBuffer.clear();
-			m_backBufferPosition = 0;
-		}
-
-		/*! Return the size of the back buffer, used to determine 
-		 * when the subplot has enough data to plot a full block.
-		 */
-		inline int backBufferSize() const { return m_backBufferPosition; }
 
 		/*! Compare two subplots for equality.
 		 * Subplots are considered equal if they live at the same linear index
@@ -117,13 +119,44 @@ class Subplot : public QObject {
 		}
 
 	signals:
+
 		/*! Emitted when this subplot is ready to be replotted, with this
 		 * subplot's index as the argument.
+		 *
 		 * This occurs when the back buffer has been filled with enough
 		 * data for a full plot block, but before the front and back 
 		 * buffers have been swapped.
 		 */
 		void plotReady(int idx);
+
+		/*! Emitted just before the subplot is deleted.
+		 *
+		 * This is used to communicate with the main PlotWindow object,
+		 * which waits for all subplots to be deleted before clearing
+		 * the plot grid and graphs.
+		 */
+		void deleted(int idx);
+
+	public slots:
+
+		/*! Add new data to the subplot.
+		 *
+		 * \param sp The intended subplot for this array of data.
+		 * \param data The actual data.
+		 * \param lock Read-write lock used to synchronize access with the main
+		 * 	PlotWindow object for redrawing the plots.
+		 * \param clicked True if this plot was clicked, and false otherwise.
+		 *
+		 * This method adds data to the subplot's back buffer, and if enough
+		 * data has been accumulated to warrant a replot, this formats the plot
+		 * (e.g, scaling axes) and notifies the main PlotWindow that this subplot
+		 * is ready to be replotted.
+		 */
+		void handleNewData(Subplot* sp, QVector<DataFrame::DataType>* data,
+				QReadWriteLock* lock, bool clicked);
+
+		/*! Request that the subplot be deleted. */
+		void requestDelete();
 
 	private:
 
@@ -173,11 +206,6 @@ class Subplot : public QObject {
 
 		/* Pen used to draw data when this plot has been clicked/selected. */
 		QPen m_selectedPen;
-
-		/* Mean of all data in a single plot block. This is used to autoscale
-		 * the data and to draw tick marks.
-		 */
-		double m_mean;
 
 		/* Return the number of samples in a plot block. */
 		inline int getPlotBlockSize() const {

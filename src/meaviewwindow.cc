@@ -162,7 +162,8 @@ void MeaviewWindow::initMenus()
 	showInspectorsAction->setChecked(false);
 	viewMenu->addAction(showInspectorsAction);
 
-	showHidensConfigurationAction = new QAction(tr("Show &HiDens configuration"), viewMenu);
+	showHidensConfigurationAction = new QAction(tr("Show &HiDens configuration"), 
+			viewMenu);
 	showHidensConfigurationAction->setShortcut(QKeySequence("Ctrl+H"));
 	showHidensConfigurationAction->setEnabled(false);
 	showHidensConfigurationAction->setCheckable(false);
@@ -177,7 +178,7 @@ void MeaviewWindow::initMenus()
 	minifyAction->setChecked(false);
 	QObject::connect(minifyAction, &QAction::triggered,
 			this, &MeaviewWindow::minify);
-	//viewMenu->addAction(minifyAction); // not implementing minification ability yet
+	viewMenu->addAction(minifyAction);
 
 	menuBar->addMenu(viewMenu);
 
@@ -288,7 +289,8 @@ void MeaviewWindow::initDisplaySettingsWidget()
 	refreshIntervalLabel->setAlignment(Qt::AlignRight);
 	refreshIntervalBox = new QDoubleSpinBox(displaySettingsWidget);
 	refreshIntervalBox->setSingleStep(plotwindow::RefreshStepSize);
-	refreshIntervalBox->setRange(plotwindow::MinRefreshInterval, plotwindow::MaxRefreshInterval);
+	refreshIntervalBox->setRange(plotwindow::MinRefreshInterval, 
+			plotwindow::MaxRefreshInterval);
 	refreshIntervalBox->setSuffix(" s");
 	refreshIntervalBox->setValue(plotwindow::DefaultRefreshInterval);
 	refreshIntervalBox->setToolTip("Interval at which data plots refresh");
@@ -482,16 +484,18 @@ void MeaviewWindow::handleInitialServerStatusReply(const QJsonObject& status)
 
 }
 
-void MeaviewWindow::handleInitialSourceStatusReply(bool exists, const QJsonObject& status)
+void MeaviewWindow::handleInitialSourceStatusReply(bool exists, 
+		const QJsonObject& status)
 {
 	if (exists) {
 		auto type = status["source-type"].toString();
 		auto array = status["device-type"].toString();
 		auto nchannels = status["nchannels"].toInt();
-
 		settings.setValue("data/array", array);
 		settings.setValue("data/nchannels", nchannels);
 		settings.setValue("data/gain", status["gain"].toDouble());
+
+		initChannelViewMenu();
 		plotWindow->setupWindow(array, nchannels);
 
 		if (array.startsWith("hidens")) {
@@ -634,6 +638,10 @@ void MeaviewWindow::endRecording()
 	totalTimeLine->setText("0");
 	position = 0.;
 
+	QObject::disconnect(dataConfigurationBox, 0, 0, 0);
+	dataConfigurationBox->clear();
+	dataConfigurationBox->setEnabled(false);
+
 	statusBar()->showMessage("Recording ended", StatusMessageTimeout * 2);
 }
 
@@ -708,9 +716,21 @@ void MeaviewWindow::updateRefresh(double refresh)
 
 void MeaviewWindow::minify(bool checked) 
 {
-	showServerDockWidget->setVisible(!checked);
-	showDisplaySettingsDockWidget->setVisible(!checked);
-	showPlaybackControlDockWidget->setVisible(!checked);
+	if (checked) {
+		windowPosition = geometry();
+		setGeometry(windowPosition.x(), windowPosition.y(),
+				MinimalWindowSize.first, MinimalWindowSize.second);
+	} else {
+		setGeometry(windowPosition);
+	}
+
+	auto visible = !checked;
+	showServerDockWidget->setVisible(visible);
+	serverDockWidget->setVisible(visible);
+	showDisplaySettingsDockWidget->setVisible(visible);
+	displaySettingsDockWidget->setVisible(visible);
+	showPlaybackControlDockWidget->setVisible(visible);
+	playbackControlDockWidget->setVisible(visible);
 }
 
 void MeaviewWindow::updateInspectorAction(int n) 
@@ -730,6 +750,24 @@ void MeaviewWindow::storeHidensConfiguration()
 			});
 	}
 	settings.setValue("data/hidens-configuration", config);
+}
+
+void MeaviewWindow::initChannelViewMenu()
+{
+	if (settings.value("data/array").toString().startsWith("hidens")) {
+		dataConfigurationBox->addItems(plotwindow::HidensChannelViewStrings);
+	} else {
+		dataConfigurationBox->addItems(plotwindow::McsChannelViewStrings);
+	}
+	QObject::connect(dataConfigurationBox, &QComboBox::currentTextChanged,
+			this, &MeaviewWindow::updateChannelView);
+	dataConfigurationBox->setEnabled(true);
+}
+
+void MeaviewWindow::updateChannelView()
+{
+	settings.setValue("display/view", dataConfigurationBox->currentText());
+	plotWindow->updateChannelView();
 }
 
 }; // end meaviewwindow namespace

@@ -10,7 +10,6 @@
 
 #include "settings.h"
 #include "qcustomplot.h"
-#include "plotworker.h"
 #include "channelinspector.h"
 #include "subplot.h"
 
@@ -32,11 +31,12 @@ namespace plotwindow {
  * Main widget containing grid of data plots.
  *
  * The PlotWindow class is a widget used to contain, display, and manage
- * a grid of subplots displaying data from each channel. The PlotWindow
- * also manages a list of PlotWorker classes, which transfer new data
- * from the server to the appropriate subplots in parallel. The window
- * also provides functionality for creating "channel inspectors", a 
- * separate window providing a blown-up view of data from a single channel.
+ * a grid of subplots showing data from each channel. It manages positioning
+ * each subplot appropriately in the grid, moving them around if necessary.
+ * The PlotWindow also sends data from the appropriate channel to the 
+ * correct subplot displaying that data. The PlotWindow provides
+ * functionality for creating a "channel inspector", a blown-up view of
+ * a single channel of data.
  */
 class PlotWindow : public QWidget {
 	Q_OBJECT
@@ -68,83 +68,47 @@ class PlotWindow : public QWidget {
 
 	signals:
 
-		/*! Send data to a plot worker, in a separate thread, for plotting.
-		 * \param subplot The subplot in which the data will be plotted.
-		 * \param data The actual data being plotted.
-		 * \param lock The read-write lock synchronizing access to the main plot
-		 * \param clicked true if the user right-clicked this plot, coloring it red.
+		/*! Send data to a subplot for transfer.
+		 *
+		 * \param sp The subplot in which the data will be plotted.
+		 * \param data Vector of data to be transferred.
+		 * \param lock The read-write lock synchronizing access to the main plot surface.
+		 * \param clicked True if the user has right-clicked this plot.
+		 *
+		 * NOTE: The data is passed as a pointer, and the subplot which actually
+		 * contains the data *must* delete it.
 		 */
-		void sendDataToPlotWorker(subplot::Subplot* subplot, 
-				QVector<DataFrame::DataType> data, QReadWriteLock* lock, 
+		void sendDataToSubplot(subplot::Subplot* sp, 
+				QVector<DataFrame::DataType>* data, QReadWriteLock* lock,
 				bool clicked);
-
-		/*! Emitted when data in all subplots has been updated, so that the main window
-		 * can refresh itself.
-		 * \param p The main plot object containing all subplots. This is what actually
-		 * does the plot refresh.
-		 * \param lock The read-write lock coordinating access to the QCustomPlot object
-		 * \param subplots The list of all subplots.
-		 */
-		void allSubplotsUpdated(QCustomPlot* p, QReadWriteLock* lock, 
-				QList<subplot::Subplot*> subplots);
 
 		/*! Emitted when the number of open inspectors changes.
 		 * \param num The number of currently open inspectors.
 		 */
-		void numInspectorsChanged(int n);
+		void numInspectorsChanged(int num);
 
-		/*! Emitted when the window wants to hide, which is an overridden behavior
-		 * for a non-sponaneous close event (e.g., user clicks the close button,
-		 * rather than doing Ctrl-Q)
-		 */
-		void hideRequest();
-
-		/*! Emitted when the plot itself is refreshed, with the number of samples
-		 * contained in the plots
-		 */
-		void plotRefreshed(int nsamples);
-
-		/*! Emitted to notify plot worker threads that they should completely clear
-		 * and delete their subplots
-		 */
-		void clearSubplots();
-
-		/*! This signal is emitted when all subplots in the window have been
-		 * updated. 
+		/*! Emitted when the plot has been redrawn with a new chunk of data.
 		 *
 		 * \param nsamples The number of samples plotted in each subplot.
 		 */
-		void plotUpdated(int nsamples);
+		void plotRefreshed(int nsamples);
+
+		/*! Emitted when all subplots have been cleared and deleted, and the
+		 * grid layout is deleted. This indicates that the grid of plots is
+		 * ready to be re-created.
+		 */
+		void cleared();
+
+		/*! Emitted to notify all subplots that they should be deleted. */
+		void deleteSubplots();
 
 	public slots:
 
-		/*! Toggles whether the plot window is visible */
-		void toggleVisible();
-		
-		/*! Toggles whether the window is in its minimal state */
+		/*! Minify the plot window and any open channel inspectors. */
 		void minify(bool min);
-
-		/*! Clears all data from all subplots */
-		void clearAllData();
 
 		/*! Completely clears the plot window, including all axes, graphs, etc */
 		void clear();
-
-		/*! Increments the number of subplots that have finished transferring data.
-		 * This is used to notify the main plot window when it can redraw itself.
-		 */
-		void incrementNumPlotsUpdated(const int idx);
-
-		/*! Create a new window dedicated to a single plot, for detailed inspection
-		 * of its data. This is useful for an intracellular recording, for example.
-		 */
-		void createChannelInspector(QMouseEvent* event);
-
-		/*! Handle a click on a single channel. Clicks can be used to color plots
-		 * red (to keep track of them), or to open an inspector window for a detailed
-		 * view of the channel's data.
-		 */
-		void handleChannelClick(QMouseEvent* event);
 
 		/*! Update the mapping between channel indices and subplots, giving the data 
 		 * the arrangement of the actual electrodes from which it originates.
@@ -154,8 +118,26 @@ class PlotWindow : public QWidget {
 		/*! Toggle whether all channel inspector windows are visible */
 		void toggleInspectorsVisible();
 
-		/*! Handle cleanup after a plot is completely updated */
-		void handlePlotUpdated(const int numNewPoints);
+	private slots:
+
+		/*! Handle the subplot with the following index being deleted. */
+		void handleSubplotDeleted(int index);
+
+		/*! Handle a click on a single channel. Clicks can be used to color plots
+		 * red (to keep track of them), or to open an inspector window for a detailed
+		 * view of the channel's data.
+		 */
+		void handleChannelClick(QMouseEvent* event);
+
+		/*! Create a new window dedicated to a single plot, for detailed inspection
+		 * of its data. This is useful for an intracellular recording, for example.
+		 */
+		void createChannelInspector(QMouseEvent* event);
+
+		/*! Increments the number of subplots that have finished transferring data.
+		 * This is used to notify the main plot window when it can redraw itself.
+		 */
+		void incrementNumPlotsUpdated(const int idx);
 
 	private:
 
@@ -207,9 +189,6 @@ class PlotWindow : public QWidget {
 		 */
 		void moveSubplots();
 
-		/*! Override close event to just hide the window */
-		void closeEvent(QCloseEvent* ev);
-
 		/*! Stack inspectors when minifying */
 		void stackInspectors();
 
@@ -223,13 +202,10 @@ class PlotWindow : public QWidget {
 
 		void replot();
 
+		void handleAllSubplotsDeleted();
+
 		/*! Number of plot transfer threads */
 		const int nthreads = QThread::idealThreadCount();
-
-		/*! The window's size prior to minifying. This is used to 
-		 * reset the window position when un-minifying
-		 */
-		QRect fullPosition;
 
 		/*! Size of subplot grid, {rows, columns} */
 		QPair<int, int> gridSize;
@@ -237,10 +213,16 @@ class PlotWindow : public QWidget {
 		/*! Number of total subplots */
 		int nsubplots;
 
-		/*! Bit array representing the plots whose front and back buffers
+		/*! Bit array representing the subplots whose front and back buffers
 		 * have been swapped, and so are ready for a replot.
 		 */
 		QBitArray subplotsUpdated;
+
+		/*! Bit array representing the subplots which have
+		 * been deleted. This is used to clear the plot window after
+		 * all have been deleted.
+		 */
+		QBitArray subplotsDeleted;
 
 		/*! Labels for each channel */
 		QStringList channelLabels;
@@ -267,15 +249,13 @@ class PlotWindow : public QWidget {
 		QList<subplot::Subplot*> subplots;
 
 		/*! List of all plot transfer threads */
-		QList<QThread*> threads;
+		QList<QThread*> transferThreads;
 
-		/*! List of all plot worker objects, which transfer data to the actual subplots */
-		QList<plotworker::PlotWorker*> workers;
-
-		/*! Read-write lock for the main plot.\
-		 * This is the only synchronization primitive used to coordinate the plotting threads.
-		 * The threads transferring data to back buffers may proceed at any time, and only
-		 * their swaps of the subplots' front and back buffers need to be synchronized with
+		/*! Read-write lock for the main plot.
+		 * This is the only synchronization primitive used to coordinate 
+		 * the transfer threads. The threads transferring data to back 
+		 * buffers may proceed at any time, and only their swaps of the 
+		 * subplots' front and back buffers need to be synchronized with
 		 * the main plot's redraw.
 		 */
 		QReadWriteLock lock;

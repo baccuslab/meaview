@@ -45,7 +45,6 @@ HEADERS += include/channelinspector.h \
            include/configwindow.h \
            include/meaviewwindow.h \
            include/plotwindow.h \
-           include/plotworker.h \
            include/qcustomplot.h \
            include/settings.h \
            include/subplot.h
@@ -54,6 +53,5 @@ SOURCES += src/channelinspector.cc \
            src/main.cc \
            src/meaviewwindow.cc \
            src/plotwindow.cc \
-           src/plotworker.cc \
            src/qcustomplot.cc \
            src/subplot.cc

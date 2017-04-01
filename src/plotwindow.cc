@@ -354,7 +354,7 @@ void PlotWindow::updateChannelView()
 	computePlotGridSize();
 
 	/* Clear plot layout, without deleting subplots. */
-	for (auto i = 0; i < nsubplots; i++) {
+	for (auto i = 0; i < plot->plotLayout()->elementCount(); i++) {
 		if (plot->plotLayout()->elementAt(i)) {
 			plot->plotLayout()->takeAt(i);
 		}
@@ -364,26 +364,6 @@ void PlotWindow::updateChannelView()
 	/* Create new view and move subplots there. */
 	createChannelView();
 	moveSubplots();
-
-	/* Update the source graph for any open channel inspectors. */
-	updateInspectorSources();
-}
-
-void PlotWindow::updateInspectorSources()
-{
-	if (inspectors.isEmpty())
-		return;
-	for (auto& inspector : inspectors) {
-		subplot::Subplot* source = nullptr;
-		for (auto& sp : subplots) {
-			if (sp->channel() == inspector->channel()) {
-				qDebug() << source << sp;
-				source = sp;
-				break;
-			}
-		}
-		inspector->updateSourceGraph(source->graph());
-	}
 }
 
 void PlotWindow::moveSubplots()

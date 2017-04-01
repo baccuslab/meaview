@@ -181,9 +181,6 @@ class PlotWindow : public QWidget {
 		 */
 		void assignSubplotsToGrid();
 
-		/*! Update the subplot source graph for any open channel inspectors */
-		void updateInspectorSources();
-
 		/*! Move subplots to a cell in the current subplot grid defined by
 		 * the current channel view
 		 */

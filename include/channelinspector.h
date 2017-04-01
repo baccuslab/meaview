@@ -50,13 +50,6 @@ class ChannelInspector : public QWidget {
 		/*! Return the channel number being inspected. */
 		int channel();
 
-		/*! Assign a new source graph to the inspector, for example, if subplots
-		 * are rearranged when a new view is selected.
-		 *
-		 * \param g The new source graph object.
-		 */
-		void updateSourceGraph(QCPGraph *g);
-
 		/*! Return the full position of the inspector window, prior to 
 		 * minifying the MeaView application
 		 */

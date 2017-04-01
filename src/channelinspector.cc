@@ -104,11 +104,6 @@ int ChannelInspector::channel()
 	return m_channel;
 }
 
-void ChannelInspector::updateSourceGraph(QCPGraph* source)
-{
-	m_sourceGraph = source;
-}
-
 void ChannelInspector::saveFullPosition()
 {
 	m_fullPos = geometry();

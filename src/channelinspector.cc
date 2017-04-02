@@ -26,7 +26,7 @@ ChannelInspector::ChannelInspector(QCustomPlot* parentPlot,
 	m_graph->keyAxis()->setTicks(false);
 	m_graph->keyAxis()->setTickLabels(false);
 	m_graph->keyAxis()->grid()->setVisible(false);
-	m_graph->keyAxis()->setRange(0, m_settings.value("sample-rate").toDouble() *
+	m_graph->keyAxis()->setRange(0, m_settings.value("data/sample-rate").toDouble() *
 			m_settings.value("display/refresh").toDouble());
 	m_graph->keyAxis()->setBasePen(channelinspector::LabelColor);
 	m_graph->valueAxis()->setTickLabelColor(channelinspector::LabelColor);

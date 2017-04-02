@@ -38,7 +38,7 @@ Subplot::Subplot(const int chan, const QString& label,
 	keyAxis->setTickLabels(false);
 	keyAxis->grid()->setVisible(false);
 	keyAxis->setRange(0, 
-			(m_settings.value("sample-rate").toDouble() * 
+			(m_settings.value("data/sample-rate").toDouble() * 
 			m_settings.value("display/refresh").toDouble()));
 	keyAxis->setLabel(m_label);
 	keyAxis->setLabelFont(subplot::LabelFont);

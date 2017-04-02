@@ -494,6 +494,7 @@ void MeaviewWindow::handleInitialSourceStatusReply(bool exists,
 		settings.setValue("data/array", array);
 		settings.setValue("data/nchannels", nchannels);
 		settings.setValue("data/gain", status["gain"].toDouble());
+		settings.setValue("data/sample-rate", status["sample-rate"].toDouble());
 
 		initChannelViewMenu();
 		plotWindow->setupWindow(array, nchannels);

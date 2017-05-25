@@ -4,7 +4,7 @@
 
 TEMPLATE = app
 TARGET = meaview
-VERSION = 0.5.0
+VERSION = 0.6.0
 OBJECTS_DIR = build
 MOC_DIR = build
 

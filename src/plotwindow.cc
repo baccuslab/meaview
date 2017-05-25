@@ -68,7 +68,6 @@ void PlotWindow::initPlot()
 void PlotWindow::setupWindow(const QString& array, const int nchannels)
 {
 	nsubplots = nchannels;
-	computePlotColors();
 	subplotsUpdated.resize(nsubplots);
 	subplotsUpdated.fill(false);
 	subplotsDeleted.resize(nsubplots);
@@ -78,6 +77,9 @@ void PlotWindow::setupWindow(const QString& array, const int nchannels)
 	computePlotGridSize();
 	createPlotGrid();
 	createChannelView();
+
+	/* Compute the valid channels. */
+	computePlotColors(computeValidDataChannels());
 
 	int threadNum = 0;
 	bool isHidens = array.startsWith("hidens");
@@ -296,56 +298,40 @@ void PlotWindow::createChannelView()
 	view.clear();
 	if (settings.value("data/array").toString().startsWith("hidens")) {
 
-		/* Retrieve electrode positions */
-		auto varList = settings.value("data/hidens-configuration").toList();
-		QList<Electrode> config;
-		for (auto& var : varList) {
-			auto point = var.toPoint();
-			config.append(Electrode{0, static_cast<uint32_t>(point.x()), 
-					0, static_cast<uint32_t>(point.y()), 0, 0});
-		}
-
-		/* Argsort electrode positions */
-		std::vector<int> idx(config.size());
-		std::iota(idx.begin(), idx.end(), 0);
-
-		/* First find "minimal" electrode, that closest to origin */
-		std::nth_element(idx.begin(), idx.begin(), idx.end(), 
-				[&config](int i, int j)->bool {
-					return configwindow::ElectrodeSorter(config.at(i), config.at(j));
-			});
-
-		/* Sort by distance to this base electrode */
-		auto sorter = [&config](int i, int j)->bool {
-			return configwindow::ElectrodeSorterDist(config.at(0),
-					config.at(i), config.at(j));
-		};
-		std::sort(idx.begin(), idx.end(), sorter);
-
-		/* Construct unsorted view */
-		decltype(view) unsortedView;
+		/* Construct basic grid view. */
+		view.clear();
 		for (auto i = 0; i < gridSize.first; i++) {
 			for (auto j = 0; j < gridSize.second; j++) {
 				auto ix = i * gridSize.second + j;
 				if ( ix >= nsubplots )
 					break;
-				unsortedView << QPair<int, int>(i, j);
+				view << QPair<int, int>(i, j);
 			}
 		}
 
-		/* Sort view based on electrode positions */
-		view.reserve(nsubplots);
-		for (auto i = 0; i < config.size(); i++) {
-			view.insert(i, unsortedView.at(idx[i]));
-		}
-
-		/* Add position for photodiode at the last subplot */
-		view.insert(nsubplots - 1, unsortedView.at(nsubplots - 1));
 
 	} else {
 		view = plotwindow::McsChannelViewMap[
 			settings.value("display/view").toString()];
 	}
+}
+
+QMap<int, bool> PlotWindow::computeValidDataChannels()
+{
+	QMap<int, bool> valid;
+	if (settings.value("data/array").toString().startsWith("hidens")) {
+		/* Retrieve electrode positions */
+		auto electrodes = settings.value("data/hidens-configuration").toList();
+		for (auto i = 0; i < nsubplots; i++) {
+			/* Invalid channels have 0 for their index. */
+			valid.insert(i, electrodes.at(i).toList().at(0).toUInt() != 0);
+		}
+	} else {
+		for (auto i = 0; i < nsubplots; i++) {
+			valid.insert(i, true);
+		}
+	}
+	return valid;
 }
 
 void PlotWindow::updateChannelView()
@@ -418,14 +404,18 @@ void PlotWindow::unstackInspectors()
 	}
 }
 
-void PlotWindow::computePlotColors()
+void PlotWindow::computePlotColors(const QMap<int, bool>& valid)
 {
 	QVariantList pens;
 	pens.reserve(nsubplots);
 	int spacing = static_cast<int>(360. / nsubplots);
 	for (auto i = 0; i < nsubplots; i++) {
-		pens << QPen{QColor::fromHsv(i * spacing, 
-				PlotPenSaturation, PlotPenValue)};
+		if (!valid.value(i)) {
+			pens << QPen{InvalidPlotPenColor};
+		} else {
+			pens << QPen{QColor::fromHsv(i * spacing, 
+					PlotPenSaturation, PlotPenValue)};
+		}
 	}
 	settings.setValue("display/plot-pens", pens);
 }

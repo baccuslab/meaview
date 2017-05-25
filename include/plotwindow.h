@@ -195,11 +195,14 @@ class PlotWindow : public QWidget {
 		/*! Compute colors equally spaced around color circle for this 
 		 * number of channels.
 		 */
-		void computePlotColors();
+		void computePlotColors(const QMap<int, bool>& valid);
 
 		void replot();
 
 		void handleAllSubplotsDeleted();
+
+		/*! Compute which channels carry valid data. */
+		QMap<int, bool> computeValidDataChannels();
 
 		/*! Number of plot transfer threads */
 		const int nthreads = QThread::idealThreadCount();

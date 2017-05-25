@@ -745,9 +745,17 @@ void MeaviewWindow::storeHidensConfiguration()
 	QVariantList config;
 	config.reserve(hidensConfiguration.size());
 	for (auto& el : hidensConfiguration) {
-		config.append(QPoint{ 
+		/*
+		 * Note: Have to use QList::push_back, because QList::append
+		 * chooses the overload that appends all items in the list,
+		 * rather than the list itself.
+		 */
+		config.push_back(QVariantList{ 
+				static_cast<int>(el.index),
 				static_cast<int>(el.xpos), 
-				static_cast<int>(el.ypos) 
+				static_cast<int>(el.x), 
+				static_cast<int>(el.ypos),
+				static_cast<int>(el.y),
 			});
 	}
 	settings.setValue("data/hidens-configuration", config);

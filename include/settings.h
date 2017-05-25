@@ -137,11 +137,11 @@ namespace plotwindow {
 	/*! HSV saturation used for lines showing data */
 	const int PlotPenSaturation = 100;
 
+	/*! HSV color for lines showing invalid data. */
+	const QColor InvalidPlotPenColor = QColor::fromHsv(0, 0, 30);
+
 	/*! HSV value used for lines showing data */
 	const int PlotPenValue = 100;
-
-	/*! Pen used to plot data in selected plots */
-	const QPen SelectedPlotPen = QPen(QColor(225, 225, 225));
 
 	/*! Background color for plot. */
 	const QBrush BackgroundColor { QColor{10, 10, 10} };

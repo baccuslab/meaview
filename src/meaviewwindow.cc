@@ -506,6 +506,7 @@ void MeaviewWindow::handleInitialSourceStatusReply(bool exists,
 			scaleBox->setMaximum(plotwindow::HiDensMaxDisplayRange);
 			scaleBox->setSingleStep(10);
 			scaleBox->setDecimals(0);
+			showHidensConfigurationAction->setEnabled(true);
 		} else {
 			settings.setValue("display/scale-multiplier", 1.0);
 			scaleBox->setSuffix(" V");
@@ -555,6 +556,8 @@ void MeaviewWindow::disconnectFromDataServer()
 
 	serverLine->setEnabled(true);
 	settings.remove("data/hidens-configuration");
+	showHidensConfigurationAction->setEnabled(false);
+	timeLine->setText("");
 
 	QObject::disconnect(dataConfigurationBox, 0, 0, 0);
 	dataConfigurationBox->clear();
@@ -608,7 +611,16 @@ void MeaviewWindow::pausePlayback()
 
 void MeaviewWindow::startPlayback() 
 {
-	requestData();
+	client->get("recording-position");
+	connections.insert("get-position",
+			QObject::connect(client, &BldsClient::getResponse,
+				[&](QString param, bool /* valid */, QVariant value) -> void {
+					if (param != "recording-position")
+						return;
+					QObject::disconnect(connections.take("get-position"));
+					position = value.toFloat();
+					requestData();
+				}));
 
 	statusBar()->showMessage("Visualization started", StatusMessageTimeout);
 	playbackStatus = PlaybackStatus::Playing;

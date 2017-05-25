@@ -275,35 +275,6 @@ namespace configwindow {
 	/*! Size of points */
 	const int PointSize = 10;
 
-	/*! Function used to sort electrodes by position in a HiDens configuration.
-	 * This is used to color data by location, so that nearby electrodes have
-	 * similar colors.
-	 *
-	 * Electrodes are sorted by x-position, then y-position.
-	 */
-	const auto ElectrodeSorter = [](Electrode e1, Electrode e2) -> bool {
-		if (e1.xpos != e2.xpos) {
-			return (e1.xpos < e2.xpos);
-		} else {
-			return (e1.ypos <= e2.ypos);
-		}
-	};
-
-	/*! Function used to sort electrodes by position in a HiDens configuration.
-	 * This is used to color data by location, so that nearby electrodes have
-	 * similar colors.
-	 *
-	 * Electrodes are sorted by distance from a given base electrode.
-	 */
-	const auto ElectrodeSorterDist = [](Electrode base, Electrode e1, Electrode e2) -> bool {
-		auto dist = [](const Electrode& el1, const Electrode& el2) -> double {
-				return std::sqrt(std::pow(el2.xpos, 2) - std::pow(el1.xpos, 2) + 
-				std::pow(el2.ypos, 2) - std::pow(el1.ypos, 2));
-			};
-		return dist(base, e1) < dist(base, e2);
-	};
-
-
 }; // end configwindow namespace
 
 }; // end meaview namespace

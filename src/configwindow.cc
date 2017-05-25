@@ -25,15 +25,6 @@ ConfigWindow::ConfigWindow(const Configuration& conf,
 	setGeometry(x(), y(), 
 			configwindow::WindowSize.first, configwindow::WindowSize.second);
 
-	/* Find the element closest to the origin, which will be the base element */
-	std::nth_element(config.begin(), config.begin(), config.end(), configwindow::ElectrodeSorter);
-
-	/* Use this as the base electrode, and sort the configuration by the distance
-	 * to this electrode
-	 */
-	auto sorter = std::bind(configwindow::ElectrodeSorterDist, config[0], _1, _2);
-	std::sort(config.begin(), config.end(), sorter);
-
 	plot = new QCustomPlot(this);
 	plot->setInteractions(QCP::iRangeDrag | 
 			QCP::iRangeZoom | QCP::iSelectPlottables);

@@ -125,7 +125,7 @@ class MeaviewWindow : public QMainWindow {
 		/*! This slot is used to update the line showing the 
 		 * current position in the recording.
 		 */
-		void updateTime();
+		void updateTime(int npoints);
 
 		/*! This slot handles jumping playback to the very initial
 		 * portion of the recording, if possible.

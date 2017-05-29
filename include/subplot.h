@@ -55,8 +55,8 @@ class Subplot : public QObject {
 		 * \param position The x- and y-position of the subplot in the grid.
 		 * \param plot The parent QCustomPlot object
 		 */
-		Subplot(const int channel, const QString& label,
-				const int subplotIndex, const QPair<int, int>& position,
+		Subplot(int channel, const QString& label,
+				int subplotIndex, const QPair<int, int>& position,
 				QCustomPlot* plot);
 
 		/*! Destroy a Subplot.
@@ -127,7 +127,7 @@ class Subplot : public QObject {
 		 * data for a full plot block, but before the front and back 
 		 * buffers have been swapped.
 		 */
-		void plotReady(int idx);
+		void plotReady(int idx, int npoints);
 
 		/*! Emitted just before the subplot is deleted.
 		 *
@@ -157,6 +157,12 @@ class Subplot : public QObject {
 
 		/*! Request that the subplot be deleted. */
 		void requestDelete();
+
+		/*! Called when the refresh rate of the plot is changed,
+		 * indicating that the number of samples before refreshing
+		 * has changed.
+		 */
+		void updatePlotBlockSize();
 
 	private:
 
@@ -208,10 +214,7 @@ class Subplot : public QObject {
 		QPen m_selectedPen;
 
 		/* Return the number of samples in a plot block. */
-		inline int getPlotBlockSize() const {
-			return ( m_settings.value("display/refresh").toDouble() *
-					m_settings.value("data/sample-rate").toDouble());
-		}
+		int m_plotBlockSize;
 };
 
 }; // end subplot namespace

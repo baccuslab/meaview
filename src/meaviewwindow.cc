@@ -345,6 +345,9 @@ void MeaviewWindow::initPlotWindow()
 			plotWindow, &plotwindow::PlotWindow::toggleInspectorsVisible);
 	QObject::connect(plotWindow, &plotwindow::PlotWindow::numInspectorsChanged,
 			this, &MeaviewWindow::updateInspectorAction);
+	QObject::connect(refreshIntervalBox, 
+			static_cast<void(QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
+			plotWindow, &plotwindow::PlotWindow::updateRefresh);
 }
 
 void MeaviewWindow::initSignals() 
@@ -666,11 +669,12 @@ void MeaviewWindow::receiveDataFrame(const DataFrame& frame)
 		requestData();
 }
 
-void MeaviewWindow::updateTime()
+void MeaviewWindow::updateTime(int npoints)
 {
+	auto start = position - (static_cast<double>(npoints) / 
+			settings.value("data/sample-rate").toDouble());
 	timeLine->setText(QString("%1 - %2").arg(
-				position - settings.value("display/refresh").toDouble(), 
-				0, 'f', 1).arg(position, 0, 'f', 1));
+				start, 0, 'f', 1).arg(position, 0, 'f', 1));
 }
 
 void MeaviewWindow::jumpToStart() 

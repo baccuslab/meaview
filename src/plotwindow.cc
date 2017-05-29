@@ -65,7 +65,7 @@ void PlotWindow::initPlot()
 	setLayout(layout);
 }
 
-void PlotWindow::setupWindow(const QString& array, const int nchannels)
+void PlotWindow::setupWindow(const QString& array, int nchannels)
 {
 	nsubplots = nchannels;
 	subplotsUpdated.resize(nsubplots);
@@ -119,6 +119,8 @@ void PlotWindow::setupWindow(const QString& array, const int nchannels)
 					sp, &subplot::Subplot::requestDelete);
 			QObject::connect(sp, &subplot::Subplot::deleted,
 					this, &PlotWindow::handleSubplotDeleted);
+			QObject::connect(this, &PlotWindow::updateRefresh,
+					sp, &subplot::Subplot::updatePlotBlockSize);
 			plot->plotLayout()->addElement(position.first, 
 					position.second, sp->rect());
 
@@ -132,12 +134,12 @@ void PlotWindow::setupWindow(const QString& array, const int nchannels)
 	plot->replot();
 }
 
-void PlotWindow::incrementNumPlotsUpdated(const int idx)
+void PlotWindow::incrementNumPlotsUpdated(int idx, int npoints)
 {
 	subplotsUpdated.setBit(idx);
 	if (subplotsUpdated.count(true) < subplotsUpdated.size())
 		return;
-	replot();
+	replot(npoints);
 }
 
 void PlotWindow::handleSubplotDeleted(int index)
@@ -420,13 +422,13 @@ void PlotWindow::computePlotColors(const QMap<int, bool>& valid)
 	settings.setValue("display/plot-pens", pens);
 }
 
-void PlotWindow::replot()
+void PlotWindow::replot(int npoints)
 {
 	lock.lockForWrite();
 	plot->replot();
 	lock.unlock();
 	subplotsUpdated.fill(false);
-	emit plotRefreshed(subplots.first()->graph()->data()->size());
+	emit plotRefreshed(npoints);
 }
 
 }; // end plotwindow namespace

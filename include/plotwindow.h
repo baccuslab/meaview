@@ -56,7 +56,7 @@ class PlotWindow : public QWidget {
 		 * \param array The type of array from which data is recorded.
 		 * \param nchannels The number of expected channels in the data.
 		 */
-		void setupWindow(const QString& array, const int nchannels);
+		void setupWindow(const QString& array, int nchannels);
 
 		/*! Transfer data contained in an Armadillo matrix into
 		 * the corresponding channel subplots
@@ -102,6 +102,9 @@ class PlotWindow : public QWidget {
 		/*! Emitted to notify all subplots that they should be deleted. */
 		void deleteSubplots();
 
+		/*! Update refresh interval. */
+		void updateRefresh();
+
 	public slots:
 
 		/*! Minify the plot window and any open channel inspectors. */
@@ -137,7 +140,7 @@ class PlotWindow : public QWidget {
 		/*! Increments the number of subplots that have finished transferring data.
 		 * This is used to notify the main plot window when it can redraw itself.
 		 */
-		void incrementNumPlotsUpdated(const int idx);
+		void incrementNumPlotsUpdated(int idx, int npoints);
 
 	private:
 
@@ -158,7 +161,7 @@ class PlotWindow : public QWidget {
 		subplot::Subplot* findSubplotContainingPoint(const QPoint& point);
 
 		/*! Destroy a channel inspector window */
-		void removeChannelInspector(const int channel);
+		void removeChannelInspector(int channel);
 
 		/*! Compute the size of a plot grid layout needed for the current
 		 * view on the current array.
@@ -197,7 +200,7 @@ class PlotWindow : public QWidget {
 		 */
 		void computePlotColors(const QMap<int, bool>& valid);
 
-		void replot();
+		void replot(int npoints);
 
 		void handleAllSubplotsDeleted();
 

@@ -10,8 +10,8 @@
 namespace meaview {
 namespace subplot {
 
-Subplot::Subplot(const int chan, const QString& label, 
-		const int idx, const QPair<int, int>& pos,
+Subplot::Subplot(int chan, const QString& label, 
+		int idx, const QPair<int, int>& pos,
 		QCustomPlot* parent)
 	: QObject(nullptr),
 	m_channel(chan),
@@ -26,6 +26,8 @@ Subplot::Subplot(const int chan, const QString& label,
 
 	m_pen = m_settings.value("display/plot-pens").toList().at(chan).value<QPen>();
 	m_selectedPen = QPen{QColor::fromHsv(m_pen.color().hue(), 255, 255)};
+
+	updatePlotBlockSize();
 
 	/* Create subplot axis and graph for the data */
 	m_rect = new QCPAxisRect(parent); // parent will delete
@@ -71,6 +73,13 @@ void Subplot::requestDelete()
 	emit deleted(m_index);
 }
 
+void Subplot::updatePlotBlockSize()
+{
+	m_plotBlockSize = static_cast<int>(
+			m_settings.value("display/refresh").toDouble() *
+			m_settings.value("data/sample-rate").toDouble());
+}
+
 void Subplot::handleNewData(Subplot* sp, QVector<DataFrame::DataType>* data, 
 		QReadWriteLock* lock, const bool clicked)
 {
@@ -80,16 +89,17 @@ void Subplot::handleNewData(Subplot* sp, QVector<DataFrame::DataType>* data,
 	/* Transfer single data block to back buffer. */
 	auto gain = m_settings.value("data/gain").toDouble();
 	for (auto i = m_backBufferPosition; i < m_backBufferPosition + data->size(); i++) {
-		auto point = gain * static_cast<double>(data->at(i - m_backBufferPosition));
+		auto point = gain * static_cast<double>(
+				data->at(i - m_backBufferPosition));
 		m_backBuffer.insert(i, QCPData(i, point));
 	}
 	m_backBufferPosition += data->size();
 
 	/* Full plot block available */
-	if (m_backBufferPosition >= getPlotBlockSize()) {
+	if (m_backBufferPosition >= m_plotBlockSize) {
 
 		/* Remove any excess data */
-		auto it = m_backBuffer.lowerBound(std::move(getPlotBlockSize()));
+		auto it = m_backBuffer.lowerBound(m_plotBlockSize);
 		while (it != m_backBuffer.end())
 			it = m_backBuffer.erase(it);
 
@@ -99,7 +109,7 @@ void Subplot::handleNewData(Subplot* sp, QVector<DataFrame::DataType>* data,
 		m_backBufferPosition = 0;
 		formatPlot(clicked);
 		lock->unlock();
-		emit plotReady(index());
+		emit plotReady(m_index, m_plotBlockSize);
 	}
 	delete data;
 }

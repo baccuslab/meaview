@@ -566,6 +566,8 @@ void MeaviewWindow::disconnectFromDataServer()
 	dataConfigurationBox->clear();
 	dataConfigurationBox->setEnabled(false);
 	setPlaybackMovementButtonsEnabled(false);
+	startPlaybackButton->setText("Start");
+	startPlaybackButton->setEnabled(false);
 
 	QObject::disconnect(client, 0, 0, 0);
 	client->disconnect();

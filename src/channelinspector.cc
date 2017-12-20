@@ -19,7 +19,7 @@ ChannelInspector::ChannelInspector(QCustomPlot* parentPlot,
 	m_channel = chan;
 	m_sourceGraph = source;
 
-	/* Create plot axis, graph, etc. */
+	/* Create plot axis and graph, and format the axes. */
 	m_plot = new QCustomPlot(this);
 	m_plot->setBackground(channelinspector::BackgroundColor);
 	m_graph = m_plot->addGraph();
@@ -38,21 +38,26 @@ ChannelInspector::ChannelInspector(QCustomPlot* parentPlot,
 	m_graph->valueAxis()->setLabelColor(channelinspector::LabelColor);
 	m_graph->setPen(m_settings.value("display/plot-pens").toList().at(m_channel).value<QPen>());
 
-	/* Copy data from source graph */
+	/* Copy the data directly from the source graph, so that
+	 * plots here may proceed independently of the source itself.
+	 */
 	m_graph->setData(m_sourceGraph->data(), true);
 	m_graph->rescaleValueAxis();
 	m_plot->replot();
 
-	/* Add the plot to the main window */
+	/* Add the plot to the layout. */
 	m_layout = new QGridLayout(this);
 	m_layout->setContentsMargins(0, 0, 0, 0);
 	m_layout->addWidget(m_plot);
 	setLayout(m_layout);
 	setWindowTitle(QString("Meaview inspector: Channel %1").arg(label));
-	setAttribute(Qt::WA_DeleteOnClose);
 	resize(channelinspector::WindowSize.first, channelinspector::WindowSize.second);
 	saveFullPosition();
 
+	/* This window has no parent, so ensure that it is properly deleted on close. */
+	setAttribute(Qt::WA_DeleteOnClose);
+
+	/* Get label for units of voltage. */
 	if (m_settings.value("data/array").toString().startsWith("hidens")) {
 		m_graph->valueAxis()->setLabel("uV");
 	} else {
@@ -65,7 +70,7 @@ ChannelInspector::ChannelInspector(QCustomPlot* parentPlot,
 	QObject::connect(m_graph->valueAxis(), &QCPAxis::ticksRequest,
 			this, [&] {
 				/* Write 3 ticks at upper/lower range and center, but draw
-				 * tick labels offset by that center (so center is 0)
+				 * tick labels offset by that center (so center is 0).
 				 */
 				auto range = m_graph->valueAxis()->range();
 				auto center = range.center();
@@ -88,12 +93,18 @@ ChannelInspector::~ChannelInspector()
 
 void ChannelInspector::closeEvent(QCloseEvent* event) 
 {
+	/* Notify the plot window, so that it removes it
+	 * from its list. That list is maintained so that
+	 * clicking on a plot which already has an open inspector
+	 * just raises it, rather than opening a new one.
+	 */
 	emit aboutToClose(m_channel);
 	event->accept();
 }
 
 void ChannelInspector::replot() 
 {
+	/* Copy source plot's data. */
 	m_graph->setData(m_sourceGraph->data(), true);
 	m_graph->rescaleAxes();
 	m_plot->replot();

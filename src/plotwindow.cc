@@ -33,6 +33,9 @@ PlotWindow::PlotWindow(QWidget* parent)
 
 PlotWindow::~PlotWindow()
 {
+	/* Request all subplots delete themselves and
+	 * shutdown all transfer threads.
+	 */
 	emit deleteSubplots();
 	for (auto& thread : transferThreads) {
 		thread->quit();
@@ -136,6 +139,10 @@ void PlotWindow::setupWindow(const QString& array, int nchannels)
 
 void PlotWindow::incrementNumPlotsUpdated(int idx, int npoints)
 {
+	/* Update our bitarray indicating that this plot 
+	 * has been updated, and replot the whole grid if
+	 * all have done so.
+	 */
 	subplotsUpdated.setBit(idx);
 	if (subplotsUpdated.count(true) < subplotsUpdated.size())
 		return;
@@ -144,6 +151,10 @@ void PlotWindow::incrementNumPlotsUpdated(int idx, int npoints)
 
 void PlotWindow::handleSubplotDeleted(int index)
 {
+	/* Update our bitarray indicating that this plot
+	 * has been deleted, and clear the whole grid if
+	 * all have been deleted.
+	 */
 	subplotsDeleted.setBit(index);
 	if (subplotsDeleted.count(true) < subplotsDeleted.size())
 		return;
@@ -158,6 +169,7 @@ void PlotWindow::toggleInspectorsVisible()
 
 void PlotWindow::clear()
 {
+	/* Delete all inspectors and request all subplots to delete. */
 	while (!inspectors.isEmpty()) {
 		auto each = inspectors.takeFirst();
 		QObject::disconnect(plot, &QCustomPlot::afterReplot, each, 0);
@@ -169,6 +181,7 @@ void PlotWindow::clear()
 
 void PlotWindow::handleAllSubplotsDeleted()
 {
+	/* Lock and clear all subplots/data/graphs/etc. */
 	lock.lockForWrite();
 	subplots.clear();
 	plot->plotLayout()->clear();
@@ -223,6 +236,7 @@ void PlotWindow::removeChannelInspector(int channel)
 	if (inspectors.size() == 0)
 		return;
 
+	/* Find inspector and delete it. */
 	for (auto i = 0; i < inspectors.size(); i++) {
 		if (inspectors.at(i)->channel() == channel) {
 			delete inspectors.takeAt(i);
@@ -236,6 +250,10 @@ void PlotWindow::handleChannelClick(QMouseEvent* event)
 {
 	if (event->button() != Qt::RightButton)
 		return;
+
+	/* Add clicked plot to set. The color is updated
+	 * inside the `Subplot` class.
+	 */
 	auto sp = findSubplotContainingPoint(event->pos());
 	if (!sp)
 		return;
@@ -384,6 +402,7 @@ void PlotWindow::minify(bool min)
 
 void PlotWindow::stackInspectors()
 {
+	/* Shrink all inspectors and stack them vertically. */
 	int ypos = ((y() + frameGeometry().height()) +
 			1.5 * channelinspector::WindowSpacing.first);
 	for (auto& inspector : inspectors) {
@@ -408,6 +427,7 @@ void PlotWindow::unstackInspectors()
 
 void PlotWindow::computePlotColors(const QMap<int, bool>& valid)
 {
+	/* Compute equally-spaced colors around the HSV space. */
 	QVariantList pens;
 	pens.reserve(nsubplots);
 	int spacing = static_cast<int>(360. / nsubplots);
@@ -424,6 +444,18 @@ void PlotWindow::computePlotColors(const QMap<int, bool>& valid)
 
 void PlotWindow::replot(int npoints)
 {
+	/* Thread-safe replotting. 
+	 *
+	 * A read-write lock is an unusual synchronization primitive, but
+	 * it maps perfectly onto what is done here. The many transfer
+	 * threads may be happily moving data to each subplot's back buffer,
+	 * which happens with no synchronization. When they want to swap
+	 * the front and back buffers, they must lock this for read. That's
+	 * to allow multiple transfer workers to proceed, as they manage
+	 * disjoint sets of subplots. This locks the lock for writing, meaning
+	 * that none of those front-back swaps may happen while the plot
+	 * is updating.
+	 */
 	lock.lockForWrite();
 	plot->replot();
 	lock.unlock();

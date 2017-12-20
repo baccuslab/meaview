@@ -14,6 +14,9 @@
 
 #include <QApplication>
 
+/*! \function main
+ * The main entry point for the `meaview` application.
+ */
 int main(int argc, char *argv[])
 {
 	QApplication app(argc, argv);

@@ -200,8 +200,19 @@ class PlotWindow : public QWidget {
 		 */
 		void computePlotColors(const QMap<int, bool>& valid);
 
+		/*! A thread-safe replotting function.
+		 *
+		 * \param npoints The number of new points in each subplot.
+		 *
+		 * Data is transferred in worker threads, so this wrapper function
+		 * does thread-synchronization and then calls `plot->replot()`.
+		 */
 		void replot(int npoints);
 
+		/*! The subplots live in separate threads, and this handler is
+		 * called when they have all notified this object that they've
+		 * been deleted. It causes the plot to clear.
+		 */
 		void handleAllSubplotsDeleted();
 
 		/*! Compute which channels carry valid data. */
@@ -259,7 +270,10 @@ class PlotWindow : public QWidget {
 		 * the transfer threads. The threads transferring data to back 
 		 * buffers may proceed at any time, and only their swaps of the 
 		 * subplots' front and back buffers need to be synchronized with
-		 * the main plot's redraw.
+		 * the main plot's redraw. A read-write lock is used because there
+		 * are potentially multiple transfers happening simultaneously,
+		 * and they must all be blocked while the actual rendering of
+		 * the data occurs.
 		 */
 		QReadWriteLock lock;
 

@@ -21,12 +21,13 @@ Subplot::Subplot(int chan, const QString& label,
 	m_ticks(3),
 	m_tickLabels(3)
 {
+	/* Get scaling information and pens. */
 	m_autoscale = (m_settings.value("data/array").toString().startsWith("hidens") ?
 			false : plotwindow::McsAutoscaledChannels.contains(m_channel));
-
 	m_pen = m_settings.value("display/plot-pens").toList().at(chan).value<QPen>();
 	m_selectedPen = QPen{QColor::fromHsv(m_pen.color().hue(), 255, 255)};
 
+	/* Compute size of a plot block. */
 	updatePlotBlockSize();
 
 	/* Create subplot axis and graph for the data */
@@ -34,7 +35,7 @@ Subplot::Subplot(int chan, const QString& label,
 	m_graph = parent->addGraph(m_rect->axis(QCPAxis::atBottom), 
 			m_rect->axis(QCPAxis::atLeft)); // parent will delete
 
-	/* Format plot */
+	/* Format plot. */
 	auto keyAxis = m_graph->keyAxis();
 	keyAxis->setTicks(false);
 	keyAxis->setTickLabels(false);
@@ -70,6 +71,8 @@ Subplot::~Subplot()
 void Subplot::requestDelete()
 {
 	deleteLater();
+
+	/* Notify PlotWindow that we've been deleted. */
 	emit deleted(m_index);
 }
 
@@ -103,12 +106,20 @@ void Subplot::handleNewData(Subplot* sp, QVector<DataFrame::DataType>* data,
 		while (it != m_backBuffer.end())
 			it = m_backBuffer.erase(it);
 
-		/* Swap front and back buffers and reformat the plot. */
+		/* Lock the RW lock. This can be locked if any other thread
+		 * is performing a buffer swap, and is only blocked when the
+		 * main thread has acquired if for writing, during which the
+		 * actual drawing of the plot surface is done. In other words,
+		 * this prevents changing the data on the plot surface while
+		 * it is being rendered to the screen.
+		 */
 		lock->lockForRead();
 		m_graph->data()->swap(m_backBuffer);
 		m_backBufferPosition = 0;
 		formatPlot(clicked);
 		lock->unlock();
+
+		/* Notify PlotWindow. */
 		emit plotReady(m_index, m_plotBlockSize);
 	}
 	delete data;

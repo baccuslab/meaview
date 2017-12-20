@@ -25,6 +25,7 @@ ConfigWindow::ConfigWindow(const Configuration& conf,
 	setGeometry(x(), y(), 
 			configwindow::WindowSize.first, configwindow::WindowSize.second);
 
+	/* Allow zooming in and out and selecting electrodes. */
 	plot = new QCustomPlot(this);
 	plot->setInteractions(QCP::iRangeDrag | 
 			QCP::iRangeZoom | QCP::iSelectPlottables);

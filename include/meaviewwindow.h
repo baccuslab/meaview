@@ -160,8 +160,12 @@ class MeaviewWindow : public QMainWindow {
 		/*! This slot updates the refresh interval of each plot. */
 		void updateRefresh(double refresh);
 
+		/*! Request the next chunk of data in the recording, using
+		 * the current time and the refresh rate.
+		 */
 		void requestData();
 
+		/*! Handle the receipt of a frame of data from the BLDS. */
 		void receiveDataFrame(const DataFrame& frame);
 
 		/*! This slot minifies the window, making it small but visible.
